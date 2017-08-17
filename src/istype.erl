@@ -10,10 +10,24 @@
                              range_test/0,
                              assert_test/0]}).
 
--type complex_type()          :: binary() | integer() | atom.
--type compound_complex_type() :: complex_type() | float().
--type int_range_type()        :: 1..100.
--type char_range_type()       :: 0..16#ff.
+-type custom()          :: binary() | integer() | atom.
+-type compound_custom() :: custom() | float().
+-type range()           :: 1..100.
+-type tuple0()          :: {}.
+-type tuple1()          :: {atom}.
+-type tuple2()          :: {atom, atom()}.
+-type tuple3()          :: {atom, atom(), binary()}.
+-type tuple_union()     :: tuple1() | tuple3().
+
+-export_type([custom/0,
+	          compound_custom/0,
+	          range/0,
+	          tuple0/0,
+	          tuple1/0,
+	          tuple2/0,
+	          tuple3/0,
+	          tuple_union/0]).
+
 %%====================================================================
 %% Test functions
 %%====================================================================
@@ -30,22 +44,20 @@ invocation_test() ->
 	           X1 when istype(X1, atom()) -> true
 	       end.
 
-complex_types_test() ->
-	true  = istype(<<"hello">>, complex_type()),
-	true  = istype(1,           complex_type()),
-	true  = istype(atom,        complex_type()),
-	false = istype([],          complex_type()),
-	true  = istype(7.0,         compound_complex_type()).
+customs_test() ->
+	true  = istype(<<"hello">>, custom()),
+	true  = istype(1,           custom()),
+	true  = istype(atom,        custom()),
+	false = istype([],          custom()),
+	true  = istype(7.0,         compound_custom()).
 
 range_test() ->
-	true  = istype(1,      int_range_type()),
-	true  = istype(50,     int_range_type()),
-	true  = istype(100,    int_range_type()),
-	false = istype(0,      int_range_type()),
-	false = istype(101,    int_range_type()),
-	true  = istype($a,     char_range_type()),
-	false = istype(16#fff, char_range_type()).
-
+	true  = istype(1,   range()),
+	true  = istype(50,  range()),
+	true  = istype(100, range()),
+	false = istype(0,   range()),
+	false = istype(101, range()).
+	
 assert_test() ->
 	asserttype(atom, atom()),
 	true = try
@@ -55,6 +67,29 @@ assert_test() ->
 	           error:{badmatch, false} ->
 	               true
 	       end.
+
+tuple_test() ->
+	true  = istype({}, tuple0()),
+	false = istype({1}, tuple0()),
+
+	true  = istype({atom}, tuple1()),
+	false = istype({<<"binary">>}, tuple1()),
+	false = istype({atom, atom}, tuple1()),
+
+	true  = istype({atom, atom}, tuple2()),
+	false = istype({atom, <<"binary">>}, tuple2()),
+	false = istype({atom, atom, <<"binary">>}, tuple2()),
+
+	true  = istype({atom, atom, <<"binary">>}, tuple3()),
+	false = istype({atom, atom}, tuple3()),
+	false = istype({atom, <<"binary">>, atom}, tuple3()),
+	false = istype({atom, atom, atom, atom}, tuple3()),
+
+	true  = istype({atom}, tuple_union()),
+	true  = istype({atom, atom, <<"binary">>}, tuple_union()),
+	false = istype({<<"binary">>}, tuple_union()),
+	false = istype({<<"binary">>, <<"binary">>}, tuple_union()),
+	false = istype({<<"binary">>, <<"binary">>, <<"binary">>}, tuple_union()).
 
 %%====================================================================
 %% Utility functions
