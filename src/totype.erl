@@ -186,7 +186,25 @@ do_convert(X0, {type, {union, Types, [Hd | Tl]}}) ->
     catch
         _:_ ->
             do_convert(X0, {type, {union, Types, Tl}})
-    end.
+    end;
+%% @doc convert to tuple
+%% @end
+do_convert(X0, {type, {tuple, any}}) when is_list(X0) ->
+    list_to_tuple(X0);
+do_convert(X0, {type, {tuple, any}}) when is_tuple(X0) ->
+    X0;
+do_convert([], {type, {tuple, none}}) ->
+    {};
+do_convert(X0, {type, {tuple, []}}) ->
+    do_convert(X0, {type, {tuple, any}});
+do_convert(X0, {type, {tuple, Types}}) when is_list(X0) ->
+    do_convert(list_to_tuple(X0), {type, {tuple, Types}});
+do_convert(X0, {type, {tuple, Types}}) when is_tuple(X0) ->
+    lists:foldl(fun({Index, Type}, Acc) ->
+                    setelement(Index, Acc, do_convert(element(Index, Acc), Type))
+                end,
+                X0,
+                lists:zip(lists:seq(1, length(Types)), Types)).
 
 %% @doc Format a conversion error
 %% @end

@@ -1,7 +1,7 @@
 -module(istype).
 
 %% API exports
--export([return_atom/0]).
+-export([return_value/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -16,22 +16,24 @@
 
 -record(record2, {a = #record1{} :: record1()}).
 
--type union0()      :: atom | integer() | binary().
--type union1()      :: float() | union0().
--type union2()      :: tuple1() | tuple3().
--type range0()      :: 1..100.
--type tuple0()      :: {}.
--type tuple1()      :: {atom}.
--type tuple2()      :: {atom, atom()}.
--type tuple3()      :: {atom, atom(), binary()}.
--type tuple4()      :: {atom() | integer()}.
--type record0()     :: #record0{}.
--type record1()     :: #record1{}.
--type record2()     :: #record2{}.
+-type union0()  :: atom | integer() | binary().
+-type union1()  :: float() | union0().
+-type union2()  :: tuple1() | tuple3().
+-type union3()  :: integer() | tuple().
+-type range0()  :: 1..100.
+-type tuple0()  :: {}.
+-type tuple1()  :: {atom}.
+-type tuple2()  :: {atom, atom()}.
+-type tuple3()  :: {atom, atom(), binary()}.
+-type tuple4()  :: {atom() | integer()}.
+-type record0() :: #record0{}.
+-type record1() :: #record1{}.
+-type record2() :: #record2{}.
 
 -export_type([union0/0,
               union1/0,
               union2/0,
+              union3/0,
               range0/0,
               tuple0/0,
               tuple1/0,
@@ -52,7 +54,7 @@
 %% Test functions
 %%====================================================================
 assert_test() ->
-    TestBinary = return_binary(),
+    TestBinary = return_value(<<"binary">>),
     true = asserttype(atom, atom()),
     true = try
                asserttype(TestBinary, atom()),
@@ -63,22 +65,22 @@ assert_test() ->
            end.
 
 invocation_test() ->
-    TestAtom = return_atom(),
+    TestAtom = return_value(atom),
     TestRecord = #record0{},
     true = istype(TestRecord#record0.a, atom()),
     true = istype(atom, atom()),
     true = istype(TestAtom, atom()),
     true = istype(fun() -> atom end(), atom()),
-    true = istype(return_atom(), atom()),
-    true = istype(?MODULE:return_atom(), atom()),
+    true = istype(return_value(atom), atom()),
+    true = istype(?MODULE:return_value(atom), atom()),
     true = istype([X1 || X1 <- lists:seq(0, 1)], list()),
     true = istype(case atom of X0 -> X0 end, atom()),
-    true = istype(begin return_atom() end, atom()),
+    true = istype(begin return_value(atom) end, atom()),
     true = istype(try 1 = 1 catch _:_ -> undefined end, integer()).
     
 guard_test() ->
-    TestAtom = return_atom(),
-    true = case ?MODULE:return_atom() of
+    TestAtom = return_value(atom),
+    true = case ?MODULE:return_value(atom) of
                X0 when istype(X0, atom()) -> true
            end,
     
@@ -98,7 +100,10 @@ union_test() ->
     ?validate(false, union1),
 
     ?validate(true, union2),
-    ?validate(false, union2).
+    ?validate(false, union2),
+
+    ?validate(true, union3),
+    ?validate(false, union3).
 
 range_test() ->
     ?validate(true, range0),
@@ -115,6 +120,9 @@ record_test() ->
     ?validate(false, record2).
 
 tuple_test() ->
+    Val = return_value({a, b, c}),
+    true = istype(Val, tuple()),
+
     ?validate(true,  tuple0),
     ?validate(false, tuple0),
 
@@ -187,8 +195,7 @@ totype_test() ->
            catch
                error:{totype_conversion, <<"0">>, {range, 1, 100}} ->
                    true;
-               E:O ->
-                    io:format("Wring weeor ~p:~p\n", [E, O]),
+               _:_ ->
                    false
            end,
 
@@ -200,16 +207,19 @@ totype_test() ->
     atom = totype(<<"atom">>, union1()),
     1.0 = totype(<<"1">>, union1()),
     <<"binary">> = totype(binary, union1()),
-    1.0 = totype(<<"1.0">>, union1()).
+    1.0 = totype(<<"1.0">>, union1()),
+
+    {a, b, c} = totype([a,b,c], tuple()),
+    {}     = totype([], tuple0()),
+    {atom} = totype([atom], tuple1()),
+    {atom} = totype([<<"atom">>], tuple1()),
+    {atom} = totype({<<"atom">>}, tuple1()).
 
 %%====================================================================
 %% Utility functions
 %%====================================================================
-return_atom() ->
-    atom.
-
-return_binary() ->
-    <<"binary">>.
+return_value(Val) ->
+    Val.
 
 union0(true) ->
     [<<"binary">>, <<"also">>, 1, 2, atom];
@@ -225,6 +235,11 @@ union2(true) ->
     tuple1(true) ++ tuple3(true);
 union2(false) ->
     tuple1(false) ++ tuple3(false).
+
+union3(true) ->
+    [{}, {0}, {0, 1}, 1, 2, 3];
+union3(false) ->
+    ["", <<"">>, 1.0].
 
 range0(true) ->
     [1, 100, 55];

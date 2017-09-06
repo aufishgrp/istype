@@ -188,25 +188,30 @@ istype_to_guard(Line, Value, {type, _, record, [{atom, _, Record}]}, UserTypes) 
                                                                   {integer, Line, RecordSize}]),
                 record_guard(Line, Value, Record, RecordFieldSpec, UserTypes)}
     end;
-%% @doc Validate that fields of tuples are typed correctly.
+%% @doc tuple spec is any tuple. don't do a deep inspection.
 %% @end
-istype_to_guard(Line, Value, {type, _, tuple, Types}, UserTypes) ->
-    case length(Types) of
-        0 ->
-            {op, Line, 'andalso',
+istype_to_guard(Line, Value, {type, _, tuple, []}, UserTypes) ->
+    istype_to_guard(Line, Value, {type, Line, tuple, any}, UserTypes);
+istype_to_guard(Line, Value, {type, _, tuple, any}, _) ->
+    {call, Line, {atom, Line, is_tuple}, [Value]};
+%% @doc tuple spec is an empty tuple.
+istype_to_guard(Line, Value, {type, _, tuple, none}, _) ->
+    {op, Line, 'andalso',
                 {call, Line, {atom, Line, 'is_tuple'}, [Value]},
                 {op, Line, '=:=',
                     {call, Line, {atom, Line, tuple_size}, [Value]},
                     {integer, Line, 0}}};
-        Length ->
-            {op, Line, 'andalso',
-                {call, Line, {atom, Line, 'is_tuple'}, [Value]},
-                {op, Line, 'andalso',
-                    {op, Line, '=:=',
-                        {call, Line, {atom, Line, tuple_size}, [Value]},
-                        {integer, Line, Length}},
-                    tuple_guard(Line, 1, Value, Types, UserTypes)}}
-    end;
+%% @doc tuple is typed. Validate fields are correct.
+%% @end  
+istype_to_guard(Line, Value, {type, _, tuple, Types}, UserTypes) ->
+    Length = length(Types),
+    {op, Line, 'andalso',
+        {call, Line, {atom, Line, 'is_tuple'}, [Value]},
+        {op, Line, 'andalso',
+            {op, Line, '=:=',
+                {call, Line, {atom, Line, tuple_size}, [Value]},
+                {integer, Line, Length}},
+                tuple_guard(Line, 1, Value, Types, UserTypes)}};
 %% @doc unions signify that one of many types/literals could be valid.
 %%      validate that at least one of these types matches.
 %% @end
@@ -328,13 +333,20 @@ type_tree(Line, {type, _, Type, _} = TypeSpec, UserTypes) when Type =:= record -
                                          type_tree_node(Line, TypeSpec0, UserTypes)}
                               end,
                               FieldTypes)}]};
+%% @doc special tuple types
+%% @end
+type_tree(Line, {type, _, Type, Fields}, _) when Type =:= tuple andalso
+                                                 (Fields =:= any orelse
+                                                  Fields =:= none) ->
+    {tuple, Line,
+        [{atom, Line, Type},
+         {atom, Line, Fields}]};
 %% @doc if the type is a tuple we need to convert all fields.
 %%      if the type is a union we need to convert to any 1 field.
 %%      either way the logic to build out the types is the same.
 %% @end
-type_tree(Line, {type, _, Type, _} = TypeSpec, UserTypes) when Type =:= tuple orelse
-                                                               Type =:= union ->
-    {_, _, _, FieldTypes} = TypeSpec,
+type_tree(Line, {type, _, Type, FieldTypes}, UserTypes) when Type =:= tuple orelse
+                                                             Type =:= union ->
     {tuple, Line,
         [{atom, Line, Type},
          cons_map(fun(Line0, FieldType) ->
@@ -363,6 +375,14 @@ get_var(Line) ->
 
 %% @doc Builds a collection of type and record definitions from the modules forms.
 %% @end
+%% @doc Slightly alter tuple typing to disambiguate between tuple() and {}
+get_types({attribute, Line, type, {Type, {type, _, tuple, Args}, []}}, #{types := Acc1} = Acc0) ->
+    FieldTypes = case Args of
+                     any -> any;
+                     [] -> none;
+                     _ -> Args
+                 end,
+    Acc0#{types => Acc1#{Type => {type, Line, tuple, FieldTypes}}};
 get_types({attribute, _, type, {Type, TypeSpec, []}}, #{types := Acc1} = Acc0) ->
     Acc0#{types => Acc1#{Type => TypeSpec}};
 get_types({attribute, _, record, {Record, RecordSpec}}, #{records := Acc1} = Acc0) ->
