@@ -1,6 +1,6 @@
 {application, istype,
  [{description, "Type validation and conversion library."},
-  {vsn, "0.1.1"},
+  {vsn, "git"},
   {registered, []},
   {applications,
    [kernel,
