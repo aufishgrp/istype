@@ -12,11 +12,11 @@ after_success:
         git config --global user.email "builds@travis-ci.com";
         git config --global user.name "Travis CI";
         export GIT_TAG=`cat VERSION`.`git rev-list --all --merges --count`;
-        echo "Using version ${GIT_TAG}";
+        
         git tag ${GIT_TAG} -a -m "Generated tag from TravisCI build ${TRAVIS_BUILD_NUMBER}";
-        git push https://${GIT_KEY}@github.com/aufishgrp/istype ${GIT_TAG};
+        git push --quiet https://${GIT_KEY}@github.com/aufishgrp/istype ${GIT_TAG} > /dev/null 2>&1;
       elif [ "${TRAVIS_TAG}" ]; then
-        echo "Attempting to push to hex";
+        echo "Attempting to tag new release";
         mkdir -p ~/.hex;
         echo '{username,<<"'${HEX_USERNAME}'">>}.' > ~/.hex/hex.config;
         echo '{key,<<"'${HEX_KEY}'">>}.' >> ~/.hex/hex.config;
