@@ -213,7 +213,30 @@ totype_test() ->
     {}     = totype([], tuple0()),
     {atom} = totype([atom], tuple1()),
     {atom} = totype([<<"atom">>], tuple1()),
-    {atom} = totype({<<"atom">>}, tuple1()).
+    {atom} = totype({<<"atom">>}, tuple1()),
+
+    #record0{} = totype([], record0()),
+    #record0{} = totype(#{}, record0()),
+    #record0{a = also} = totype([{"a", <<"also">>}], record0()),
+    #record0{a = also} = totype(#{<<"a">> => "also"}, record0()),
+
+    #record1{a = #record0{a = also, b = <<"binary">>, c = undefined}} = totype([{a, #{a => "also", b => binary}}], record1()),
+    #record1{a = #record0{a = also, b = <<"binary">>, c = undefined}} = totype(#{a => #{a => "also", b => binary}}, record1()),
+    #record1{a = #record0{a = also}} = totype([{a, #record0{a = also}}], record1()),
+
+    #record2{a = #record1{b = <<"binary">>}} = totype(#record2{a = #record1{b = binary}}, record2()),
+
+    [{a, [{a, [{a, apple},
+               {b, <<"">>},
+               {c, undefined},
+               {d, {dog}}]},
+          {b, <<"">>}]}] = totype(#record2{a=#record1{a=#record0{d = {dog}}}}, list()),
+
+    #{a := #{a := #{a := apple,
+                    b := <<"">>,
+                    c := undefined,
+                    d := {dog}},
+             b := <<"">>}} = totype(#record2{a=#record1{a=#record0{d = {dog}}}}, map()).
 
 %%====================================================================
 %% Utility functions

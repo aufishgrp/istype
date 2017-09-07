@@ -35,7 +35,9 @@ do_transform({call, Line, {atom, _, totype}, [Value, {call, _, {atom, _, Type}, 
                  {remote, Line,
                      {atom, Line, totype},
                      {atom, Line, convert}},
-                 [Value, type_tree_node(Line, {type, Line, Type, TypeArgs}, UserTypes)]}},
+                 [Value,
+                  type_tree_node(Line, {type, Line, Type, TypeArgs}, UserTypes),
+                  erl_parse:abstract(UserTypes, [{line, Line}])]}},
          do_transform({call, Line,
                           {atom, Line, asserttype},
                           [Converted, {call, Line, {atom, Line, Type}, TypeArgs}]},
@@ -317,12 +319,14 @@ type_tree(Line, {_, _, range, Args}, _) ->
 type_tree(Line, {type, _, Type, _} = TypeSpec, UserTypes) when Type =:= record ->
     {_, _, _, [{atom, _, Record}]} = TypeSpec,
     {Arity, Fields, FieldTypes} = get_record_spec(Record, UserTypes),
-
+    ArityMap = maps:from_list(lists:zip(Fields, lists:seq(2, length(Fields) + 1))),
     {tuple, Line, [
         {atom, Line, record},
         {atom, Line, Record},
+        {record, Line, Record, []},
         {integer, Line, Arity},
         erl_parse:abstract(Fields, [{line, Line}]),
+        erl_parse:abstract(ArityMap, [{line, Line}]),
         {map, Line, lists:map(fun({_, {_, _, {atom, _, Field}}, TypeSpec0}) ->
                                      {map_field_assoc, Line,
                                          {atom, Line, Field},
