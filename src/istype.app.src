@@ -1,6 +1,6 @@
 {application, istype,
- [{description, "An OTP library"},
-  {vsn, "0.1.0"},
+ [{description, "Type validation and conversion library."},
+  {vsn, "0.1.1"},
   {registered, []},
   {applications,
    [kernel,
@@ -9,8 +9,7 @@
    ]},
   {env,[]},
   {modules, []},
-
-  {maintainers, []},
-  {licenses, []},
-  {links, []}
+  {maintainers, ["Charles Zilm"]},
+  {licenses, ["BSD-3-Clause"]},
+  {links, [{"Github", "https://github.com/aufishgrp/istype"}]}
  ]}.
