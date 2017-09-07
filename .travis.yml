@@ -6,7 +6,8 @@ otp_release:
   - 20.0
 script: "rebar3 eunit"
 after_success:
-  - if [ "$TRAVIS_BRANCH" == "master" ]; then
+  - if [ "${TRAVIS_PULL_REQUEST}" == "false" ]; then
+      if [ "$TRAVIS_BRANCH" == "master" ]; then
         mkdir -p ~/.hex;
         echo '{username,<<"'${HEX_USERNAME}'">>}.' > ~/.hex/hex.config;
         echo '{key,<<"'${HEX_KEY}'">>}.' >> ~/.hex/hex.config;
@@ -15,4 +16,5 @@ after_success:
         echo '{plugins, [rebar3_hex]}.' > ~/.config/rebar3/rebar.config;
 
         printf "y\n" | rebar3 hex publish;
+      fi
     fi
