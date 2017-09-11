@@ -1,7 +1,7 @@
 branches:
   only:
     - master
-    - /^\d+\.\d+\.\d+-\d+$/
+    - /^\d+\.\d+\.\d+$/
 sudo: false
 language: erlang
 notifications:
@@ -12,7 +12,7 @@ script: "rebar3 eunit"
 after_success:
   - VERSION=`cat VERSION`
     if [ `git rev-list ${VERSION}.0 2>/dev/null` ]; then
-      VERSION=${VERSION}.`git rev-list --merges --count ${VERSION}.0`;
+      VERSION=${VERSION}.`git rev-list --merges --count ${VERSION}.0..`;
     else
       VERSION=${VERSION}.0
     fi
