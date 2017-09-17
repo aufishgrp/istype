@@ -1,26 +1,45 @@
-branches:
-  only:
-    - master
-    - /^\d+\.\d+\.\d+-\d+$/
-sudo: false
 language: erlang
-notifications:
-  email: false
 otp_release:
   - 20.0
-script: "rebar3 eunit"
+sudo: required
+notifications:
+  email: false
+install:
+  - sudo apt-get install -y httpie
+  - git clone https://github.com/inaka/elvis.git ~/Git/elvis;
+    cd ~/Git/elvis;
+    rebar3 escriptize;
+    sudo cp _build/default/bin/elvis /usr/bin/elvis
+  - cd ${TRAVIS_BUILD_DIR}
+script:
+  - elvis rock
+  - rebar3 eunit
 after_success:
-  - if [ "${TRAVIS_PULL_REQUEST}" == "false" ]; then
+  - GIT_OWNER=aufishgrp;
+    GIT_REPO=istype;
+
+    VERSION=`cat VERSION`;
+    LAST_VERSION=`git describe --abbrev=0`;
+    if [ `git rev-list ${VERSION}.0 2>/dev/null` ]; then
+      VERSION=${VERSION}.`git rev-list --merges --count ${VERSION}.0..`;
+    else
+      VERSION=${VERSION}.0;
+    fi
+
+    NEW_VERSION=true;
+    if [ `git rev-list ${VERSION} 2>/dev/null` ]; then
+      NEW_VERSION=false;
+    fi
+
+    if [ "${TRAVIS_PULL_REQUEST}" == "false" ]; then
       if [ "${TRAVIS_BRANCH}" == "master" ]; then
-        echo "Attempting to tag new release";
-        git config --global user.email "builds@travis-ci.com";
-        git config --global user.name "Travis CI";
-        export GIT_TAG=`cat VERSION`-`git rev-list --all --merges --count`;
-        
-        git tag ${GIT_TAG} -a -m "Generated tag from TravisCI build ${TRAVIS_BUILD_NUMBER}";
-        git push --quiet https://${GIT_KEY}@github.com/aufishgrp/istype ${GIT_TAG} > /dev/null 2>&1;
+        if [ "${NEW_VERSION}" == "true" ]; then
+          echo "Tagging a new release";
+          RELEASE_NOTES=`git log ${LAST_VERSION}..${VERSION} --pretty=format:'<li><a href=http://github.com/${GIT_OWNER}/<project>/commit/%H">view commit &bull;</a>%s</li>' --reverse --no-merges`;
+          http POST https://api.github.com/repos/${GIT_OWNER}/${GIT_REPO}/releases Authorization:"token ${GIT_KEY}" tag_name=${VERSION} name=${VERSION} target_commitish=master draft=false prerelease=false body="${RELEASE_NOTES}";
+        fi
       elif [ "${TRAVIS_TAG}" ]; then
-        echo "Attempting to tag new release";
+        echo "Publishing new release";
         mkdir -p ~/.hex;
         echo '{username,<<"'${HEX_USERNAME}'">>}.' > ~/.hex/hex.config;
         echo '{key,<<"'${HEX_KEY}'">>}.' >> ~/.hex/hex.config;
