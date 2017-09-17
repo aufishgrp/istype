@@ -35,8 +35,9 @@ after_success:
       if [ "${TRAVIS_BRANCH}" == "master" ]; then
         if [ "${NEW_VERSION}" == "true" ]; then
           echo "Tagging a new release";
-          RELEASE_NOTES=`git log ${LAST_VERSION}..${VERSION} --pretty=format:'<li><a href=http://github.com/${GIT_OWNER}/<project>/commit/%H">view commit &bull;</a>%s</li>' --reverse --no-merges`;
-          http POST https://api.github.com/repos/${GIT_OWNER}/${GIT_REPO}/releases Authorization:"token ${GIT_KEY}" tag_name=${VERSION} name=${VERSION} target_commitish=master draft=false prerelease=false body="${RELEASE_NOTES}";
+          RELEASE_NOTES=`git log ${LAST_VERSION}.. --pretty=format:'<li><a href="http://github.com/${GIT_OWNER}/<project>/commit/%H">view commit &bull;</a>%s</li>' --reverse --no-merges`;
+          JSON="{'Authorization':'token ${GIT_KEY}', 'tag_name':'${VERSION}', 'name':'${VERSION}', 'target_commitish':'master', 'draft':false, 'prerelease':false, 'body':'${RELEASE_NOTES}'}";
+          echo ${JSON} | http POST https://api.github.com/repos/${GIT_OWNER}/${GIT_REPO}/releases
         fi
       elif [ "${TRAVIS_TAG}" ]; then
         echo "Publishing new release";
