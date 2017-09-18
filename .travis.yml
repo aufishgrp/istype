@@ -1,14 +1,19 @@
-branches:
-  only:
-    - master
-    - /^\d+\.\d+\.\d+$/
-sudo: false
 language: erlang
-notifications:
-  email: false
 otp_release:
   - 20.0
-script: "rebar3 eunit"
+sudo: required
+notifications:
+  email: false
+install:
+  - sudo apt-get install -y httpie
+  - git clone https://github.com/inaka/elvis.git ~/Git/elvis;
+    cd ~/Git/elvis;
+    rebar3 escriptize;
+    sudo cp _build/default/bin/elvis /usr/bin/elvis
+  - cd ${TRAVIS_BUILD_DIR}
+script:
+  - elvis rock
+  - rebar3 eunit
 after_success:
   - GIT_OWNER=aufishgrp;
     GIT_REPO=istype;
@@ -18,7 +23,12 @@ after_success:
     if [ `git rev-list ${VERSION}.0 2>/dev/null` ]; then
       VERSION=${VERSION}.`git rev-list --merges --count ${VERSION}.0..`;
     else
-      VERSION=${VERSION}.0
+      VERSION=${VERSION}.0;
+    fi
+
+    NEW_VERSION=true;
+    if [ `git rev-list ${VERSION} 2>/dev/null` ]; then
+      NEW_VERSION=false;
     fi
 
     NEW_VERSION=true;
@@ -30,8 +40,8 @@ after_success:
       if [ "${TRAVIS_BRANCH}" == "master" ]; then
         if [ "${NEW_VERSION}" == "true" ]; then
           echo "Tagging a new release";
-          RELEASE_NOTES=`git log ${LAST_VERSION}..${VERSION} --pretty=format:'<li><a href=http://github.com/${GIT_OWNER}/<project>/commit/%H">view commit &bull;</a>%s</li>' --reverse --no-merges`
-          http POST https://api.github.com/repos/${GIT_OWNER}/${GIT_REPO}/releases Authorization:"token ${GIT_KEY}" tag_name=${VERSION} name=${VERSION} target_commitish=master draft=false prerelease=false body="${RELEASE_NOTES}"
+          RELEASE_NOTES=`git log ${LAST_VERSION}..${VERSION} --pretty=format:'<li><a href=http://github.com/${GIT_OWNER}/<project>/commit/%H">view commit &bull;</a>%s</li>' --reverse --no-merges`;
+          http POST https://api.github.com/repos/${GIT_OWNER}/${GIT_REPO}/releases Authorization:"token ${GIT_KEY}" tag_name=${VERSION} name=${VERSION} target_commitish=master draft=false prerelease=false body="${RELEASE_NOTES}";
         fi
       elif [ "${TRAVIS_TAG}" ]; then
         echo "Publishing new release";
