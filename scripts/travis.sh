@@ -1,6 +1,6 @@
 function set_version(){
   VERSION=`cat VERSION`;
-  if [ `git rev-list ${VERSION}.0` ]; then
+  if [ "`git rev-list ${VERSION}.0`" ]; then
     VERSION=${VERSION}.`git rev-list --merges --count ${VERSION}.0..`
   else
     VERSION=${VERSION}.0
@@ -13,7 +13,7 @@ function set_last_version(){
 
 function set_new_version(){
   set_version
-  if [ `git rev-list ${VERSION} 2>/dev/null` ]; then
+  if [ "`git rev-list ${VERSION} 2>/dev/null`" ]; then
     NEW_VERSION="false"
   else
     NEW_VERSION="true"
