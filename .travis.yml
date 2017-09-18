@@ -19,7 +19,6 @@ after_success:
     GIT_REPO=istype;
 
     VERSION=`cat VERSION`;
-    echo "Base Version ${VERSION}";
     LAST_VERSION=`git describe --abbrev=0`;
     if [ `git rev-list ${VERSION}.0 2>/dev/null` ]; then
       VERSION=${VERSION}.`git rev-list --merges --count ${VERSION}.0..`;
@@ -27,11 +26,8 @@ after_success:
       VERSION=${VERSION}.0;
     fi
 
-    echo "Version - ${VERSION}";
-
     NEW_VERSION=true;
     if [ `git rev-list ${VERSION} 2>/dev/null` ]; then
-      echo "Is not a new version";
       NEW_VERSION=false;
     fi
 
@@ -39,10 +35,8 @@ after_success:
       if [ "${TRAVIS_BRANCH}" == "master" ]; then
         if [ "${NEW_VERSION}" == "true" ]; then
           echo "Tagging a new release";
-
           RELEASE_NOTES=`git log ${LAST_VERSION}.. --pretty=format:"<li><a href='http://github.com/${GIT_OWNER}/${GIT_REPO}/commit/%H'>view commit &bull;</a>%s</li>" --reverse --no-merges -i --invert-grep --grep="Travis"`;
           JSON="{\"tag_name\":\"${VERSION}\", \"name\":\"${VERSION}\", \"target_commitish\":\"master\", \"draft\":false, \"prerelease\":false, \"body\":\"${RELEASE_NOTES}\"}";
-          echo ${JSON}
           echo ${JSON} | http POST https://api.github.com/repos/${GIT_OWNER}/${GIT_REPO}/releases Authorization:"token ${GIT_KEY}";
         else
           echo "Old version no actions taken.";
@@ -52,10 +46,8 @@ after_success:
         mkdir -p ~/.hex;
         echo '{username,<<"'${HEX_USERNAME}'">>}.' > ~/.hex/hex.config;
         echo '{key,<<"'${HEX_KEY}'">>}.' >> ~/.hex/hex.config;
-
         mkdir -p ~/.config/rebar3;
         echo '{plugins, [rebar3_hex]}.' > ~/.config/rebar3/rebar.config;
-
         printf "y\n" | rebar3 hex publish;
       fi
     fi
