@@ -1,6 +1,6 @@
 function set_version(){
   VERSION=`cat VERSION`;
-  if [ `git rev-list ${VERSION}.0 2>/dev/null` ]; then
+  if [ `git rev-list ${VERSION}.0` ]; then
     VERSION=${VERSION}.`git rev-list --merges --count ${VERSION}.0..`
   else
     VERSION=${VERSION}.0
