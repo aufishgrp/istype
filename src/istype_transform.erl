@@ -16,12 +16,10 @@ parse_transform(Forms, _Options) ->
                                                    {type, union, [parse_type({type, 1, binary, []}),
                                                                   parse_type({type, 1, nil, []})]}]}},
                          Forms),
-    X = forms:map(fun(Form) ->
+    forms:map(fun(Form) ->
                   do_transform(Form, Types, Records)
               end,
-              Forms),
-    %io:format("~p\n", [Types]),
-    X.
+              Forms).
 
 do_transform({call, Line, {atom, _, istype}, [Value, Type]}, Types, Records) ->
     %% is_integer(Value) orelse is_boolean(Value) ...
@@ -206,11 +204,12 @@ type_to_guard(Line, Value, {type, range, {Low, undefined}}, Types, Records) ->
         type_to_guard(Line, Value, {type, integer, []}, Types, Records),
         {op, Line, '>=', Value, {integer, Line, Low}}};
 type_to_guard(Line, Value, {type, range, {Low, High}}, Types, Records) ->
-    {op, Line, 'andalso',
+   {op, Line, 'andalso',
         type_to_guard(Line, Value, {type, integer, []}, Types, Records),
         {op, Line, 'andalso',
             {op, Line, '>=', Value, {integer, Line, Low}},
             {op, Line, '=<', Value, {integer, Line, High}}}};
+
 %% @doc records are special tuples. Use the bif and then validate the fields.
 %% @end
 type_to_guard(Line, Value, {type, record, {Record, Overrides}}, Types, Records) ->
@@ -264,7 +263,6 @@ type_to_guard(Line, Value, {type, union, UnionTypes}, Types, Records) ->
 type_to_guard(Line, Value, {type, list, [{type, any, _}]}, _, _) ->
     type_to_guard_bif(Line, Value, is_list, []);
 type_to_guard(Line, Value, {type, list, ListSpec}, Types, Records) ->
-    %io:format("List Spec ~p\n", [ListSpec]),
     {call, Line,
         {remote, Line,
             {atom, Line, istype_lib},
@@ -366,7 +364,7 @@ override_record_field_types(RecordFields, RecordFieldTypes, Overrides) ->
 %% @doc Build a tree that can be traversed to reduce a type into it's
 %%      primitive components. This will be used by the conversion function.
 %% @end
-%% @doc Wrap the typedate as either a type of literal.
+%% @doc Wrap the type data as either a type of literal.
 %% @end
 type_to_convert_data(Line, {literal, _, _} = Literal, _, _) ->
     erl_parse:abstract(Literal, [{line, Line}]);
@@ -399,17 +397,6 @@ type_to_convert_data(Line, {type, record, {Record, _Overrides}}, _, Records) ->
             {integer, Line, Arity},
             erl_parse:abstract(ArityMap, [{line, Line}]),
             erl_parse:abstract(FieldTuple, [{line, Line}])]}]};
-%% special ranges
-%type_to_convert_data(Line, {type, byte, _}, Types, Records) ->
-%    type_to_convert_data(Line, {type, range, {0, 255}}, Types, Records);
-%type_to_convert_data(Line, {type, char, _}, Types, Records) ->
-%    type_to_convert_data(Line, {type, range, {0, 16#10ffff}}, Types, Records);
-%type_to_convert_data(Line, {type, neg_integer, _}, Types, Records) ->
-%    type_to_convert_data(Line, {type, range, {undefined, -1}}, Types, Records);
-%type_to_convert_data(Line, {type, non_neg_integer, _}, Types) ->
-%    type_to_convert_data(Line, {type, range, {0, undefined}}, Types);
-%type_to_convert_data(Line, {type, pos_integer, _}, Types) ->
-%    type_to_convert_data(Line, {type, range, {1, undefined}}, Types);
 %% @doc special tuple types
 %% @end
 type_to_convert_data(Line, {type, tuple, TupleFieldTypes}, _, _) when TupleFieldTypes =:= any orelse
@@ -444,6 +431,11 @@ type_to_convert_data(Line, {_, Type, _}, Types, Records) ->
 %% @doc Convert a raw literal value, a raw type, a call that represents
 %%      a type, or a record that represents a type into a parsed_type.
 %% @end
+%% @doc Some literals are represented as an operation agains the literal.
+%%      Process the operation then parse the resulting literal.
+%% @end
+parse_type({op, _, '-', {integer, Line, Value}}) ->
+    parse_type({integer, Line, -1 * Value});
 %% @doc Literal values. Should only ever be atom() or integer()
 %% @end
 parse_type({Type, _, Value}) ->
@@ -452,9 +444,9 @@ parse_type({Type, _, Value}) ->
 %% @end
 %% @doc atom - handled by the default handler.
 %% @end
-%% @doc integer - handled by the default handler.
-%% @end
 %% @doc float - handled by the default handler.
+%% @end
+%% @doc integer - handled by the default handler.
 %% @end
 %% @doc map - handled by the default handler.
 %% @end
@@ -462,8 +454,11 @@ parse_type({Type, _, Value}) ->
 %% @end
 %% @doc port - handled by the default handler.
 %% @end
-parse_type({type, _, range, [{_, _, Low}, {_, _, High}]}) ->
-    {type, range, {Low, High}};
+parse_type({type, _, range, [Low, High]}) ->
+    {literal, integer, LowInt} = parse_type(Low),
+    {literal, integer, HighInt} = parse_type(High),
+    {type, range, {LowInt, HighInt}};
+
 %% @doc Record as seen in a type spec.
 %% @end
 parse_type({type, _, record, [{atom, _, Record} | FieldTypes]}) ->
