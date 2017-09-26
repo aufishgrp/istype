@@ -5,51 +5,36 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--record(record0, {a = apple  :: atom(),
-                  b = <<"">> :: binary(),
-                  c          :: undefined | range0(),
-                  d}).
+-define(convert_error(Value, Type), try
+                                        totype(Value, Type)
+                                    catch
+                                        error:{istype_conversion, _, _} ->
+                                            ok;
+                                        _:_ ->
+                                            wrong_error
+                                    end).
 
--record(record1, {a = #record0{} :: record0(),
-                  b = <<"">> :: binary()}).
+%%=============================================================================
+%% Test records
+%%=============================================================================
+-record(record_a, {a = atom :: atom(),
+                   b = atom,
+                   c        :: atom(),
+                   d,
+                   e        :: atom() | binary()}).
+-record(record_b, {f :: #record_a{e :: binary()},
+                   g :: atom() | integer()}).
 
--type union0()  :: atom | integer() | binary().
--type union1()  :: float() | union0().
--type union2()  :: tuple1() | tuple3().
--type range0()  :: 1..100.
--type tuple0()  :: tuple().
--type tuple1()  :: {}.
--type tuple2()  :: {atom}.
--type tuple3()  :: {atom, atom()}.
--type tuple4()  :: {atom, atom() | binary()}.
--type record0() :: #record0{}.
--type record1() :: #record1{}.
--type record2() :: #record0{c :: range0()}.
--type list0()   :: list().
--type list1()   :: [].
--type list2()   :: [atom()].
--type list3()   :: list(atom() | integer()).
+%%=============================================================================
+%% General test functions
+%%=============================================================================
+%% @doc Returns the value.
+%%      Used to prevent compiler warnings that a match can never succeed
+%%      as the value type would be known at compile time.
+%% @end
+return_value(Value) -> Value.
 
--export_type([union0/0,
-              union1/0,
-              union2/0,
-              range0/0,
-              tuple0/0,
-              tuple1/0,
-              tuple2/0,
-              tuple3/0,
-              tuple4/0,
-              record0/0,
-              record1/0,
-              record2/0,
-              list0/0,
-              list1/0,
-              list2/0,
-              list3/0]).
-
-%%====================================================================
-%% Test functions
-%%====================================================================
+%% @doc Assure that the assertion transform works as expected.
 assert_test() ->
     TestBinary = return_value(<<"binary">>),
     true = asserttype(atom, atom()),
@@ -81,30 +66,447 @@ guard_test() ->
                X0 when istype(X0, atom()) -> true
            end,
 
-    Record1 = return_value(#record1{}),
+    Record1 = return_value(#record_a{}),
     true = case Record1 of
-               X1 when istype(X1, record1()) -> true
+               X1 when istype(X1, #record_a{e = atom()}) -> true
            end,
 
     true = fun(X2) when istype(X2, atom()) -> true;
               (_) -> false
            end(TestAtom).
 
-return_value(Value) -> Value.
+%%=============================================================================
+%% Type test functions
+%%=============================================================================
+%% Predefined types
+%%=========================================================
+%% any()
+%%=====================================
+-type any_type() :: any().
+any_validation_test() ->
+    true = istype(return_value(atom), any()),
+    true = istype(return_value(<<"binary">>), any()),
+    true = istype(return_value(1.0), any()),
+    true = istype(return_value(1), any()),
+    true = istype(return_value("list"), any()).
 
-atom_test() ->
+any_conversion_test() ->
+    atom = totype(atom, any()),
+    <<"binary">> = totype(<<"binary">>, any()),
+    1.0 = totype(1.0, any()),
+    1 = totype(1, any()),
+    "list" = totype("list", any()).
+
+%%=====================================
+%% none()
+%%=====================================
+-type none_type() :: none().
+none_validation_test() ->
+    false = istype(return_value(atom), none()),
+    false = istype(return_value(<<"binary">>), none()),
+    false = istype(return_value(1.0), none()),
+    false = istype(return_value(1), none()),
+    false = istype(return_value("list"), none()).
+
+none_conversion_test() ->
+    ok = ?convert_error(atom, none()),
+    ok = ?convert_error(<<"binary">>, none()),
+    ok = ?convert_error(1.0, none()),
+    ok = ?convert_error(1, none()),
+    ok = ?convert_error("list", none()).
+
+%%=====================================
+%% pid()
+%%=====================================
+-type pid_type() :: pid().
+pid_validation_test() ->
+    Self = self(),
+    false = istype(return_value(atom), pid()),
+    true = istype(return_value(Self), pid()).
+
+pid_conversion_test() ->
+    Self = self(),
+    ListSelf = pid_to_list(Self),
+    BinarySelf = list_to_binary(ListSelf),
+
+    Self = totype(BinarySelf, pid()),
+    Self = totype(ListSelf, pid()),
+    Self = totype(Self, pid()),
+
+    ok = ?convert_error(atom, pid()).
+
+%%=====================================
+%% port()
+%%=====================================
+-type port_type() :: port().
+port_validation_test() ->
+    Port = open_port({spawn, "tar -xzf -"}, [exit_status, binary]),
+    false = istype(return_value(atom), port()),
+    true = istype(return_value(Port), port()),
+    true = port_close(Port).
+
+port_conversion_test() ->
+    Port = open_port({spawn, "tar -xzf -"}, [exit_status, binary]),
+    ListPort = port_to_list(Port),
+    BinaryPort = list_to_binary(ListPort),
+
+    Port = totype(BinaryPort, port()),
+    Port = totype(ListPort, port()),
+    Port = totype(Port, port()),
+
+    ok = ?convert_error(atom, port()),
+
+    true = port_close(Port).
+
+%%=====================================
+%% reference()
+%%=====================================
+-type reference_type() :: reference().
+reference_validation_test() ->
+    Ref = make_ref(),
+    
+    false = istype(return_value(atom), reference()),
+    true = istype(return_value(Ref), reference()).
+
+reference_conversion_test() ->
+    Ref = make_ref(),
+    ListRef = ref_to_list(Ref),
+    BinaryRef = list_to_binary(ListRef),
+
+    Ref = totype(BinaryRef, reference()),
+    Ref = totype(ListRef, reference()),
+    Ref = totype(Ref, reference()).
+
+%%=====================================
+%% [] - nil()
+%%=====================================
+-type nil_a_type() :: [].
+-type nil_b_type() :: nil().
+nil_valdiation_test() ->
+    false = istype(return_value(atom), []),
+    false = istype(return_value(atom), nil()),
+    false = istype(return_value(atom), nil_a_type()),
+
+    true  = istype(return_value([]), []),
+    true  = istype(return_value([]), nil()),
+    true  = istype(return_value([]), nil_a_type()).
+
+nil_conversion_test() ->
+    [] = totype([], []),
+    [] = totype([], nil()),
+    [] = totype([], nil_a_type()),
+
+    ok = ?convert_error(atom, []),
+    ok = ?convert_error(atom, nil()),
+    ok = ?convert_error(atom, nil_a_type()).
+
+%%=====================================
+%% Atom
+%%=====================================
+%% @doc Atom :: atom()
+%%            | Erlang_Atom
+%%
+%%      Erlang_Atom :: 'foo', 'bar', ...
+%% @end
+-type atom_type() :: atom().
+atom_validation_test() ->
     true = istype(return_value(atom), atom()),
-    false = istype(return_value(<<"binary">>), atom()),
+    false = istype(return_value(<<"binary">>), atom()).
 
-    Atom = return_value(atom),
-    Atom = totype(atom, atom()),
-    Atom = totype(<<"atom">>, atom()),
-    Atom = totype("atom", atom()).
+atom_conversion_test() ->
+    atom = totype(atom, atom()),
+    atom = totype(<<"atom">>, atom()),
+    atom = totype("atom", atom()),
+    ok = ?convert_error(1, atom()).
 
-binary_test() ->
+-type erlang_atom_type() :: atom.
+erlang_atom_validation_test() ->
+    true = istype(return_value(atom), atom),
+    false = istype(return_value(undefined), atom),
+    false = istype(return_value(<<"atom">>), atom).
+
+erlang_atom_conversion_test() ->
+    atom = totype(<<"atom">>, atom),
+    ok = ?convert_error("undefined", atom).    
+
+%%=====================================
+%% Bitstring
+%%=====================================
+%% @doc Bitstring :: <<>>
+%%                 | <<_:M>>
+%%                 | <<_:_*N>>
+%%                 | <<_:M, _:_*N>>
+%%
+%%      M :: integer() >= 1
+%%      N :: integer() >= 1
+%% @end
+-type empty_bitstring_type() :: <<>>.
+-type m_bitstring_type() :: <<_:1>>.
+-type n_bitstring_type() :: <<_:_*1>>.
+-type mn_bitstring_type() :: <<_:1, _:_*1>>.
+
+%%=====================================
+%% float()
+%%=====================================
+-type float_type() :: float().
+float_validation_test() ->
+    false = istype(return_value(atom), float()),
+    true = istype(return_value(1.0), float()),
+    false = istype(return_value(1), float()).
+
+float_conversion_test() ->
+    1.0 = totype(<<"1">>, float()),
+    1.0 = totype(<<"1.0">>, float()),
+    1.0 = totype(<<"1.00000000e+00">>, float()),
+    1.0 = totype(1.0, float()),
+    1.0 = totype(1, float()),
+    1.0 = totype("1", float()),
+    1.0 = totype("1.0", float()),
+    1.0 = totype("1.00000000e+00", float()),
+
+    -1.0 = totype(<<"-1">>, float()),
+    -1.0 = totype(<<"-1.0">>, float()),
+    -1.0 = totype(<<"-1.00000000e+00">>, float()),
+    -1.0 = totype(-1.0, float()),
+    -1.0 = totype(-1, float()),
+    -1.0 = totype("-1", float()),
+    -1.0 = totype("-1.0", float()),
+    -1.0 = totype("-1.00000000e+00", float()),
+
+    ok = ?convert_error(atom, float()).
+
+%%=====================================
+%% Fun
+%%=====================================
+%% @doc Fun :: fun()                %% Any fun
+%%           | fun((...) -> Type)   %% Any arity returning Type
+%%           | fun(() -> Type)
+%%           | fun((TList) -> Type)
+%%
+%%      TList :: Type
+%%             | Type, TList
+%% @end
+-type any_fun_type() :: fun().
+-type any_arity_fun_returning_type() :: fun((...) -> atom()).
+-type fun_returning_type() :: fun(() -> atom()).
+-type typed_fun_type() :: fun((atom()) -> atom()).
+
+%%=====================================
+%% Integer
+%%=====================================
+%% @doc Integer :: integer()
+%%               | Erlang_Integer                 
+%%               | Erlang_Integer..Erlang_Integer %% range()
+%%
+%%      Erlang_Integer :: ..., -1, 0, 1, ..., 42, ...
+%% @end
+%%=================
+%% integer()
+%%=================
+-type integer_type() :: integer().
+integer_validation_test() ->
+    false = istype(return_value(atom), integer()),
+    false = istype(return_value(1.0), integer()),
+    true = istype(return_value(1), integer()),
+    true = istype(return_value(-1), integer()).
+
+integer_conversion_test() ->
+    1 = totype(1, integer()),
+
+    1 = totype(<<"1">>, integer()),
+    1 = totype(<<"1.0">>, integer()),
+    1 = totype(<<"1.00000000e+00">>, integer()),
+    
+    1 = totype("1", integer()),
+    1 = totype("1.0", integer()),
+    1 = totype("1.00000000e+00", integer()),
+
+    -1 = totype(<<"-1">>, integer()),
+
+    ok = ?convert_error(atom, integer()).
+
+%%=================
+%% Erlang_Integer
+%%=================
+-type erlang_integer_type() :: 1.
+-type erlang_negative_integer_type() :: -1.
+erlang_integer_validation_test() ->
+    false = istype(return_value(atom), 1),
+    false = istype(return_value(1.0), 1),
+    true = istype(return_value(1), 1),
+    true = istype(return_value(-1), -1).
+
+erlang_integer_conversion_test() ->
+    1 = totype(1, 1),
+    -1 = totype(-1, -1),
+
+    1 = totype(<<"1">>, 1),
+    1 = totype(<<"1.0">>, 1),
+    1 = totype(<<"1.00000000e+00">>, 1),
+    
+    1 = totype("1", 1),
+    1 = totype("1.0", 1),
+    1 = totype("1.00000000e+00", 1),
+
+    -1 = totype(<<"-1">>, -1),
+    -1 = totype("-1", -1),
+
+    ok = ?convert_error(atom, 1).
+
+%%================
+%% Erlang_Integer..Erlang_Integer
+%%=================
+-type range_type()     ::  1..100.
+-type neg_range_type() :: -1..1.
+range_validation_test() ->
+    false = istype(return_value(atom), range_type()),
+    false = istype(return_value(-1), range_type()),
+    true = istype(return_value(1), range_type()),
+    false = istype(return_value(1.0), range_type()),
+    false = istype(return_value(101), range_type()),
+
+    false = istype(-2, neg_range_type()),
+    true = istype(0, neg_range_type()),
+    false = istype(2, neg_range_type()).
+
+range_conversion_test() ->
+    1 = totype(<<"1">>, range_type()),
+    1 = totype(1.0, range_type()),
+    1 = totype(1, range_type()),
+    1 = totype("1", range_type()),
+
+    ok = ?convert_error(atom, range_type()).
+
+%%=====================================
+%% List
+%%=====================================
+%% @doc List :: list(Type)
+%%            | maybe_improper_list(Type1, Type2)               
+%%            | nonempty_improper_list(Type1, Type2)
+%%            | nonempty_list(Type)
+%%
+%% @end
+-type typed_list_type() :: list(atom()).
+-type maybe_improper_list_type() :: maybe_improper_list(atom(), atom() | nil()).
+-type nonempty_improper_list_type() :: nonempty_improper_list(atom(), atom()).
+-type nonempty_list_type() :: nonempty_list(atom()).
+
+%%=====================================
+%% Map
+%%=====================================
+%% @doc Map :: map() %% Any map
+%%           | #{}   %% Empty map            
+%%           | #{PairList}
+%%
+%%      PairList :: Pair
+%%                | Pair, PairList
+%%
+%%      Pair :: Type := Type %% Mandatory pair
+%%            | Type => Type %% Optional pair
+%% @end
+-type any_map_type() :: map().
+-type empty_map_type() :: #{}.
+-type mandatory_map_type() :: #{atom() := atom()}.
+-type optional_map_type() :: #{binary() => binary()}.
+-type mixed_map_type() :: #{atom() := atom(),
+                            binary() => binary()}.
+
+any_map_validation_test() ->
+    false = istype(return_value(atom), map()),
+    true = istype(return_value(#{}), map()).
+    
+any_map_conversion_test() ->
+    #{} = totype([], map()),
+    #{} = totype(#{}, map()),
+
+    #{a := b,
+      b := c} = totype([{a, b}, {b, c}], map()),
+    #{a := b,
+      b := c} = totype(#{a => b, b => c}, map()),
+
+    #{a := undefined,
+      b := undefined} = totype(#record1{}, map()),
+
+    ok = ?convert_error(atom, map()).
+
+empty_map_validation_test() ->
+    false = istype(return_value(atom), #{}),
+    true = istype(return_value(#{}), #{}).
+    
+empty_map_conversion_test() ->
+    %% TODO: Fix Me
+    %% #{} = totype([], #{}),
+    %% #{} = totype(#{}, #{}),
+
+    %% #{a := b,
+    %%   b := c} = totype([{a, b}, {b, c}], #{}),
+    %% #{a := b,
+    %%   b := c} = totype(#{a => b, b => c}, #{}),
+
+    %% TODO: Fix Me
+    %% #{a := undefined,
+    %%   b := undefined} = totype(#record1{}, #{}),
+
+    ok = ?convert_error(atom, #{}).
+
+%%=====================================
+%% Tuple
+%%=====================================
+%% @doc Tuple :: tuple() %% Any tuple
+%%             | {}      %% Empty tuple
+%%             | {TList}
+%%      
+%%      TList :: Type
+%%             | Type, TList
+%% @end
+-type any_tuple_type() :: tuple().
+-type empty_tuple_type() :: {}.
+-type typed_tuple_type() :: {atom(), any()}.
+
+%%=====================================
+%% Union
+%%=====================================
+%% @doc Union :: Type1 | Type2      
+%% @end
+-type union_type() :: atom() | integer().
+
+%%=========================================================
+%% Predefined Aliases
+%%=========================================================
+%% term()
+%%=====================================
+%% @doc term() :: any()
+%% @end
+-type term_type() :: term().
+term_validation_test() ->
+    %% TODO: Fix Me
+    %% true = istype(return_value(atom), term()).
+    %% true = istype(return_value(<<"binary">>), term()).
+    %% true = istype(return_value(1.0), term()).
+    %% true = istype(return_value(1), term()).
+    %% true = istype(return_value("list"), term()).
+    ok.
+
+term_conversion_test() ->
+    %% TODO: Fix Me
+    %% atom = totype(atom, term()),
+    %% <<"binary">> = totype(<<"binary">>, term()),
+    %% 1.0 = totype(1.0, term()),
+    %% 1 = totype(1, term()),
+    %% "list" = totype("list", term()).
+    ok.
+
+%%=====================================
+%% binary()
+%%=====================================
+%% @doc binary() :: <<_:_*8>>
+%% @end
+-type binary_type() :: binary().
+binary_validation_test() ->
     false = istype(return_value(atom), binary()),
-    true = istype(return_value(<<"binary">>), binary()),
+    true = istype(return_value(<<"binary">>), binary()).
 
+binary_converstion_test() ->
     <<"binary">> = totype(binary, binary()),
     <<"binary">> = totype(<<"binary">>, binary()),
     <<"1.00000000000000000000e+00">> = totype(1.0, binary()),
@@ -120,558 +522,472 @@ binary_test() ->
     BinaryPid = list_to_binary(pid_to_list(Pid)),
     BinaryPid = totype(Pid, binary()).
 
-bitstring_test() ->
+%%=====================================
+%% bitstring()
+%%=====================================
+%% @doc bitstring() :: <<_:_*1>>
+%% @end
+-type bitstring_type() :: bitstring().
+bitstring_validation_test() ->
     false = istype(atom, bitstring()),
-    true = istype(<<"binary">>, bitstring()),
+    true = istype(<<"binary">>, bitstring()).
 
+bitstring_conversion_test() ->
     <<"bitstring">> = totype(<<"bitstring">>, bitstring()),
     <<"bitstring">> = totype("bitstring", bitstring()).
 
-boolean_test() ->
+%%=====================================
+%% boolean()
+%%=====================================
+%% @doc boolean() :: 'false' | 'true'
+%% @end
+-type boolean_type() :: boolean().
+boolean_validation_test() ->
     true = istype(return_value(true), boolean()),
     true = istype(return_value(false), boolean()),
     false = istype(return_value(undefined), boolean()),
-    false = istype(return_value(<<"binary">>), boolean()),
+    false = istype(return_value(<<"binary">>), boolean()).
 
+boolean_conversion_test() ->
     true = totype(true, boolean()),
     true = totype(<<"true">>, boolean()),
     true = totype("true", boolean()).
 
-float_test() ->
-    false = istype(return_value(atom), float()),
-    true = istype(return_value(1.0), float()),
-    false = istype(return_value(1), float()),
+%%=====================================
+%% byte()
+%%=====================================
+%% @doc byte() :: 0..255
+%% @end
+-type byte_type() :: byte().
+byte_validation_test() ->
+    false = istype(atom, byte()),
+    true = istype(0, byte()),
+    false = istype(-1, byte()),
+    false = istype(256, byte()).
 
-    1.0 = totype(<<"1">>, float()),
-    1.0 = totype(<<"1.0">>, float()),
-    1.0 = totype(<<"1.00000000e+00">>, float()),
-    1.0 = totype(1.0, float()),
-    1.0 = totype(1, float()),
-    1.0 = totype("1", float()),
-    1.0 = totype("1.0", float()),
-    1.0 = totype("1.00000000e+00", float()).
+byte_conversion_test() ->
+    0 = totype(0, byte()),
+    ok = ?convert_error(atom, byte()),
+    ok = ?convert_error(-1, byte()).
 
-integer_test() ->
-    false = istype(return_value(atom), integer()),
-    false = istype(return_value(1.0), integer()),
-    true = istype(return_value(1), integer()),
+%%=====================================
+%% char()
+%%=====================================
+%% @doc char() :: 0..16#10ffff
+%% @end
+-type char_type() :: char().
+char_validation_test() ->
+    false = istype(atom, char()),
+    true = istype(0, char()),
+    false = istype(-1, char()),
+    false = istype(16#110000, char()).
 
-    1 = totype(<<"1">>, integer()),
-    1 = totype(<<"1.0">>, integer()),
-    1 = totype(<<"1.00000000e+00">>, integer()),
-    1 = totype(1, integer()),
-    1 = totype("1", integer()),
-    1 = totype("1.0", integer()),
-    1 = totype("1.00000000e+00", integer()).
+char_conversion_test() ->
+    0 = totype(0, char()),
+    ok = ?convert_error(atom, char()),
+    ok = ?convert_error(-1, char()).
 
-list_test() ->
-    false = istype(return_value(atom), list0()),
-    true = istype(return_value("list"), list0()),
+%%=====================================
+%% nil()
+%%=====================================
+%% @doc nil() :: []
+%% @end
+%% @doc See [] - nil() above
+%% @end
 
-    "atom" = totype(atom, list0()),
-    "binary" = totype(<<"binary">>, list0()),
-    "1.00000000000000000000e+00" = totype(1.0, list0()),
-    "#Fun<istype" ++ _ = totype(fun() -> atom end, list0()),
-    "1" = totype(1, list0()),
-    "list" = totype("list", list0()),
-    [{a, b},
-     {b, c}] = totype(#{a => b, b => c}, list0()),
-
-    Pid = self(),
-    ListPid = pid_to_list(Pid),
-    ListPid = totype(Pid, list0()),
-
-    Ref = make_ref(),
-    ListRef = ref_to_list(Ref),
-    ListRef = totype(Ref, list0()),
-
-    [a, b, c] = totype({a, b, c}, list0()),
-
-    true = istype(return_value([]), list1()),
-    false = istype(return_value([atom]), list1()),
-    false = istype(return_value("string"), list1()),
-
-    [] = totype("", list1()),
-    ok = try
-             totype([atom], list1())
-         catch
-             error:{istype_conversion, _, _} ->
-                 ok;
-             _:_ ->
-                 wrong_error
-         end,
-
-    true = istype(return_value([]), list2()),
-    true = istype(return_value([atom]), list2()),
-    true = istype(return_value([atom, also]), list2()),
-    false = istype(return_value([1]), list2()),
-    false = istype(return_value([atom, 1]), list2()),
-
-    [] = totype({}, list2()),
-    [atom] = totype({<<"atom">>}, list2()),
-    [atom] = totype(["atom"], list2()),
-    ok = try
-             totype([1], list2())
-         catch
-             error:{istype_conversion, _, _} ->
-                 ok;
-             _:_ ->
-                 wrong_error
-         end,
-
-    true = istype(return_value([]), list3()),
-    true = istype(return_value([atom]), list3()),
-    true = istype(return_value([atom, also]), list3()),
-    true = istype(return_value([1]), list3()),
-    true = istype(return_value([atom, 1]), list3()),
-    false = istype(return_value(<<"binary">>), list3()),
-    false = istype(return_value([<<"binary">>]), list3()),
-
-    [] = totype({}, list3()),
-    [atom] = totype({<<"atom">>}, list3()),
-    [atom] = totype(["atom"], list3()),
-    [1] = totype(["1"], list3()),
-    [1, atom] = totype(["1", <<"atom">>], list3()),
-
-    ok = try
-             totype([{}], list3())
-         catch
-             error:{istype_conversion, _, _} ->
-                 ok;
-             _:_ ->
-                 wrong_error
-         end,
-
-    true = istype(return_value([atom]), nonempty_list()),
-    false = istype(return_value([]), nonempty_list()),
-    false = istype(return_value(atom), nonempty_list()),
-
-    [atom] = totype({atom}, nonempty_list()),
-    ok = try
-             totype(<<"">>, nonempty_string())
-         catch
-             error:{istype_conversion, _, _} ->
-                 ok;
-             _:_ ->
-                 wrong_error
-         end,
-
-    true = istype(return_value(""), string()),
-    true = istype(return_value("string"), string()),
-    false = istype(return_value(atom), string()),
-    false = istype(return_value([atom]), string()),
-
-    "string" = totype(<<"string">>, string()),
-    "string" = totype(string, string()),
-
-    true = istype(return_value("string"), nonempty_string()),
-    false = istype(return_value(""), nonempty_string()),
-
-    "string" = totype(<<"string">>, nonempty_string()),
-    ok = try
-             totype(<<"">>, nonempty_string())
-         catch
-             error:{istype_conversion, _, _} ->
-                 ok;
-             _:_ ->
-                 wrong_error
-         end,
-
-    false = istype(return_value([atom|atom]), list(atom())),
-    [atom, binary] = totype(["atom" | <<"binary">>], list(atom())),
-    ok = try
-             totype(["atom" | 1], list(atom()))
-         catch
-             error:{istype_conversion, _, _} ->
-                 ok;
-             _:_ ->
-                 wrong_error
-         end,
-
-    true = istype(return_value(["string" | <<"binary">>]), iolist()).
-
-map_test() ->
-    false = istype(return_value(atom), map()),
-    true = istype(return_value(#{}), map()),
-
-    #{a := b,
-      b := c} = totype([{a, b}, {b, c}], map()),
-    #{a := b,
-      b := c} = totype(#{a => b, b => c}, map()).
-
-    %% TODO: record to map
-
-number_test() ->
+%%=====================================
+%% number()
+%%=====================================
+%% @doc number() :: integer() | float()
+%% @end
+-type number_type() :: number().
+number_validation_test() ->
     false = istype(return_value(atom), number()),
     true = istype(return_value(1.0), number()),
-    true = istype(return_value(1), number()),
+    true = istype(return_value(1), number()).
 
+number_conversion_test() ->
     1.0 = totype(<<"1.0">>, number()),
     1.0 = totype(1.0, number()),
     1 = totype(1, number()),
-    1 = totype("1", number()).
+    1 = totype("1", number()),
 
-pid_test() ->
-    Pid = self(),
-    ListPid = pid_to_list(Pid),
-    BinaryPid = list_to_binary(ListPid),
+    ok = ?convert_error(atom, number()).
 
-    false = istype(return_value(atom), pid()),
-    true = istype(return_value(Pid), pid()),
-    true = istype(return_value(Pid), identifier()),
+%%=====================================
+%% list()
+%%=====================================
+%% @doc list() :: [any()]
+%% @end
+-type list_type() -> list().
+list_validation_test() ->
 
-    Pid = totype(BinaryPid, pid()),
-    Pid = totype(ListPid, pid()),
-    Pid = totype(Pid, pid()).
+%%=====================================
+%% maybe_improper_list()
+%%=====================================
+%% @doc maybe_improper_list() :: maybe_improper_list(any(), any())
+%% @end
 
-range_test() ->
-    false = istype(atom, range0()),
-    false = istype(0, range0()),
-    true = istype(1, range0()),
-    true = istype(50, range0()),
-    false = istype(50.0, range0()),
-    true = istype(100, range0()),
-    false = istype(101, range0()),
+%%=====================================
+%% nonempty_list()
+%%=====================================
+%% @doc nonempty_list() :: nonempty_list(any())
+%% @end
 
-    1 = totype(<<"1">>, range0()),
-    1 = totype(1.0, range0()),
-    1 = totype(1, range0()),
-    1 = totype("1", range0()),
+%%=====================================
+%% string()
+%%=====================================
+%% @doc string() :: [char()]
+%% @end
+-type string_type() :: string().
+string_validation_test() ->
+    false = istype(return_value(atom), string()),
+    false = istype(return_value(<<"binary">>), string()),
+    true = istype(return_value(""), string()),
+    true = istype(return_value([]), string()),
+    true = istype(return_value("string"), string()),
+    true = istype(return_value([$s, $t, $r, $i, $n, $g]), string()),
+    false = istype(return_value([-1]), string()).
 
-    ok = try
-             totype(0, range0())
-         catch
-             error:{istype_conversion, _, _} ->
-                ok;
-             _:_ ->
-                 wrong_error
-         end,
+string_conversion_test() ->
+    "" = totype(<<"">>, string()),
+    "" = totype("", string()),
+    "" = totype([], string()),
 
-    true = istype(0, arity()),
-    false = istype(-1, arity()),
-    false = istype(256, arity()),
+    "atom" = totype(atom, string()),
+    "binary" = totype(<<"binary">>, string()),
+    "1.0" = totype(1.0, string()),
+    "1" = totype(1, string()),
+    "string" = totype("string", string()),
+    [$s, $t, $r, $i, $n, $g] = totype([$s, $t, $r, $i, $n, $g], string()),
+
+    Self = self(),
+    ListSelf = pid_to_list(Self),
+    ListSelf = totype(Self, string()),
+    
+    Port = open_port({spawn, "tar -xzf -"}, [exit_status, binary]),
+    ListPort = port_to_list(Port),
+    ListPort = totype(Port, string()),
+    true = port_close(Port),
+
+    Ref = make_ref(),
+    ListRef = ref_to_list(Ref),
+    ListRef = totype(Ref, string()),
+
+    ok = ?convert_error([-1], string()).
+
+%%=====================================
+%% nonempty_string()
+%%=====================================
+%% @doc nonempty_string() :: [char(), ...]
+%% @end
+-type nonempty_string_type() :: nonempty_string().
+nonempty_string_validation_test() ->
+    false = istype(return_value(atom), nonempty_string()),
+    false = istype(return_value(<<"binary">>), nonempty_string()),
+    false = istype(return_value(""), nonempty_string()),
+    false = istype(return_value([]), nonempty_string()),
+    true = istype(return_value("nonempty_string"), nonempty_string()),
+    true = istype(return_value([$s, $t, $r, $i, $n, $g]), nonempty_string()),
+    false = istype(return_value([-1]), nonempty_string()).
+
+nonempty_string_conversion_test() ->
+    "atom" = totype(atom, nonempty_string()),
+    "binary" = totype(<<"binary">>, nonempty_string()),
+    "1.0" = totype(1.0, nonempty_string()),
+    "1" = totype(1, nonempty_string()),
+    "nonempty_string" = totype("nonempty_string", nonempty_string()),
+    [$s, $t, $r, $i, $n, $g] = totype([$s, $t, $r, $i, $n, $g], nonempty_string()),
+
+    Self = self(),
+    ListSelf = pid_to_list(Self),
+    ListSelf = totype(Self, nonempty_string()),
+    
+    Port = open_port({spawn, "tar -xzf -"}, [exit_status, binary]),
+    ListPort = port_to_list(Port),
+    ListPort = totype(Port, nonempty_string()),
+    true = port_close(Port),
+
+    Ref = make_ref(),
+    ListRef = ref_to_list(Ref),
+    ListRef = totype(Ref, nonempty_string()),
+
+    ok = ?convert_error([-1], nonempty_string()),
+    ok = ?convert_error("", nonempty_string()),
+    ok = ?convert_error([], nonempty_string()).
+
+%%=====================================
+%% iodata()
+%%=====================================
+%% @doc iodata() :: iolist() | binary()
+%% @end
+
+%%=====================================
+%% iolist()
+%%=====================================
+%% @doc iolist() :: maybe_improper_list(byte() | binary() | iolist(),
+%%                                      binary() | [])
+%% @end
+
+%%=====================================
+%% function()
+%%=====================================
+%% @doc function() :: fun()
+%% @end
+
+
+%%=====================================
+%% module()
+%%=====================================
+%% @doc module() :: atom()
+%% @end
+-type module_type() :: module().
+module_validation_test() ->
+    true = istype(return_value(atom), module()),
+    false = istype(return_value(<<"binary">>), module()).
+
+module_conversion_test() ->
+    atom = totype(atom, module()),
+    atom = totype(<<"atom">>, module()),
+    atom = totype("atom", module()),
+    ok = ?convert_error(1, module()).
+
+%%=====================================
+%% mfa()
+%%=====================================
+%% @doc mfa() :: {module(), atom(), arity()}
+%% @end
+-type mfa_type() :: mfa().
+mfa_validation_test() ->
+    false = istype(return_value(atom), mfa()),
+    true = istype(return_value({atom, atom, 0}), mfa()),
+    false = istype(return_value({<<"binary">>, atom, 0}), mfa()),
+    false = istype(return_value({atom, <<"binary">>, 0}), mfa()),
+    false = istype(return_value({atom, atom, atom}), mfa()).
+
+mfa_conversion_test() ->
+    {atom, atom, 0} = totype({atom, atom, 0}, mfa()),
+    {atom, atom, 0} = totype({<<"atom">>, <<"atom">>, <<"0">>}, mfa()),
+    {atom, atom, 0} = totype({atom, atom, 0.0}, mfa()),
+    {atom, atom, 0} = totype({"atom", "atom", "0"}, mfa()),
+    {atom, atom, 0} = totype(["atom", "atom", "0"], mfa()),
+
+    ok = ?convert_error(atom, mfa()).
+
+%%=====================================
+%% arity()
+%%=====================================
+%% @doc arity() :: 0..255
+%% @end
+-type arity_type() :: arity().
+arity_validation_test() ->
+    false = istype(return_value(atom), arity()),
+    true = istype(return_value(0), arity()),
+    false = istype(return_value(-1), arity()),
+    false = istype(return_value(256), arity()).
+
+arity_conversion_test() ->
     0 = totype(0, arity()),
-    ok = try
-             totype(-1, arity())
-         catch
-             error:{istype_conversion, _, _} ->
-                ok;
-             _:_ ->
-                 wrong_error
-         end,
+    ok = ?convert_error(atom, arity()),
+    ok = ?convert_error(-1, arity()).
 
-    true = istype(0, byte()),
-    false = istype(-1, byte()),
-    false = istype(256, byte()),
-    0 = totype(0, byte()),
-    ok = try
-             totype(-1, byte())
-         catch
-             error:{istype_conversion, _, _} ->
-                ok;
-             _:_ ->
-                 wrong_error
-         end,
+%%=====================================
+%% identifier()
+%%=====================================
+%% @doc identifier() :: pid() | port() | refrence()
+%% @end
+-type identifier_type() :: identifier().
+identifier_validation_test() ->
+    Self = self(),
+    Port = open_port({spawn, "tar -xzf -"}, [exit_status, binary]),
+    Ref = make_ref(),
 
-    true = istype(0, char()),
-    false = istype(-1, char()),
-    false = istype(16#110000, char()),
-    0 = totype(0, char()),
-    ok = try
-             totype(-1, char())
-         catch
-             error:{istype_conversion, _, _} ->
-                ok;
-             _:_ ->
-                 wrong_error
-         end,
+    false = istype(return_value(atom), identifier()),
+    true = istype(return_value(Self), identifier()),
 
-    true = istype(0, non_neg_integer()),
-    false = istype(-1, non_neg_integer()),
-    0 = totype(0, non_neg_integer()),
-    ok = try
-             totype(-1, non_neg_integer())
-         catch
-             error:{istype_conversion, _, _} ->
-                ok;
-             _:_ ->
-                 wrong_error
-         end,
+    false = istype(return_value(atom), identifier()),
+    true = istype(return_value(Port), identifier()),
+        
+    false = istype(return_value(atom), identifier()),
+    true = istype(return_value(Ref), identifier()),
 
-    true = istype(1, pos_integer()),
-    false = istype(0, pos_integer()),
-    1 = totype(1, pos_integer()),
-    ok = try
-             totype(0, pos_integer())
-         catch
-             error:{istype_conversion, _, _} ->
-                ok;
-             _:_ ->
-                 wrong_error
-         end,
+    true = port_close(Port).
 
-    true = istype(-1, neg_integer()),
-    false = istype(0, neg_integer()),
-    -1 = totype(-1, neg_integer()),
-    ok = try
-             totype(0, neg_integer())
-         catch
-             error:{istype_conversion, _, _} ->
-                ok;
-             _:_ ->
-                 wrong_error
-         end.
+identifier_conversion_test() ->
+    Self = self(),
+    ListSelf = pid_to_list(Self),
+    BinarySelf = list_to_binary(ListSelf),
 
-record_test() ->
-    %-record(record0, {a = apple  :: atom(),
-    %                  b = <<"">> :: binary(),
-    %                  c          :: undefined | range0(),
-    %                  d}).
-    %
-    %-record(record1, {a = #record0{} :: record0(),
-    %              b = <<"">> :: binary()}).
-    false = istype(return_value(atom), record0()),
-    true = istype(return_value(#record0{}), record0()),
-    true = istype(return_value(#record0{}), #record0{}),
-    true = istype(return_value(#record0{a = atom,
-                                        b = <<"binary">>,
-                                        c = 50,
-                                        d = also}),
-                  record0()),
-    true = istype(return_value({record0, atom, <<"">>, undefined, undefined}), record0()),
-    false = istype(return_value({record0, atom, <<"">>, atom, undefined}), record0()),
+    Self = totype(BinarySelf, identifier()),
+    Self = totype(ListSelf, identifier()),
+    Self = totype(Self, identifier()),
 
-    #record0{a = atom,
-             b = <<"binary">>,
-             c = 50,
-             d = atom} = totype({record0, "atom", "binary", "50", atom}, record0()),
-    #record0{a = atom,
-             b = <<"binary">>,
-             c = 50,
-             d = atom} = totype(#{a => "atom", b => "binary", c => "50", d => atom}, record0()),
-    #record0{a = atom,
-             b = <<"binary">>,
-             c = 50,
-             d = atom} = totype(#{"a" => "atom", <<"b">> => "binary", "c" => "50", <<"d">> => atom}, record0()),
-    #record0{a = atom,
-             b = <<"binary">>,
-             c = 50,
-             d = atom} = totype([{a, "atom"}, {b, "binary"}, {c, "50"}, {d, atom}], record0()),
+    Port = open_port({spawn, "tar -xzf -"}, [exit_status, binary]),
+    ListPort = port_to_list(Port),
+    BinaryPort = list_to_binary(ListPort),
+    Port = totype(BinaryPort, identifier()),
+    Port = totype(ListPort, identifier()),
+    Port = totype(Port, identifier()),
 
-    false = istype(return_value(atom), record1()),
-    true = istype(return_value(#record1{}), record1()),
-    true = istype(return_value(#record1{a = #record0{a = atom,
-                                                     b = <<"binary">>,
-                                                     c = 50,
-                                                     d = also},
-                                        b = <<"binary">>}),
-                  record1()),
-    true = istype(return_value({record1, {record0, atom, <<"">>, undefined, undefined}, <<"">>}), record1()),
-    false = istype(return_value({record1, {record0, atom, <<"">>, undefined, undefined}, undefined}), record1()),
-    false = istype(return_value({record1, {record0, atom, <<"">>, atom, undefined}, <<"">>}), record1()),
-
-    #record1{a = #record0{a = atom,
-                          b = <<"binary">>,
-                          c = 50,
-                          d = atom},
-             b = <<"binary">>} = totype({record1, {record0, "atom", "binary", "50", atom}, "binary"}, record1()),
-    #record1{a = #record0{a = atom,
-                          b = <<"binary">>,
-                          c = 50,
-                          d = atom},
-             b = <<"binary">>} = totype(#{a => #{a => "atom",
-                                                 b => "binary",
-                                                 c => "50",
-                                                 d => atom},
-                                          b => binary},
-                                        record1()),
-    #record1{a = #record0{a = atom,
-                          b = <<"binary">>,
-                          c = 50,
-                          d = atom},
-             b = <<"binary">>} = totype(#{a => #{"a" => "atom",
-                                                 <<"b">> => "binary",
-                                                 "c" => "50",
-                                                 <<"d">> => atom},
-                                          b => binary},
-                                        record1()),
-    #record1{a = #record0{a = atom,
-                          b = <<"binary">>,
-                          c = 50,
-                          d = atom},
-             b = <<"binary">>} = totype([{a, [{a, "atom"},
-                                              {b, "binary"},
-                                              {c, "50"},
-                                              {d, atom}]},
-                                         {b, binary}],
-                                        record1()),
-
-    false = istype(return_value(#record0{}), record2()),
-    true = istype(return_value(#record0{c = 1}), record2()),
-
-    #record0{c = 1} = totype(#record0{c = <<"1">>}, record2()),
-    ok = try
-             totype(#record0{}, record2())
-         catch
-             error:{istype_conversion, _, _} ->
-                ok;
-             _:_ ->
-                 wrong_error
-         end.
-
-reference_test() ->
     Ref = make_ref(),
     ListRef = ref_to_list(Ref),
     BinaryRef = list_to_binary(ListRef),
+    Ref = totype(BinaryRef, identifier()),
+    Ref = totype(ListRef, identifier()),
+    Ref = totype(Ref, identifier()),
 
-    false = istype(return_value(atom), reference()),
-    true = istype(return_value(Ref), reference()),
-    true = istype(return_value(Ref), identifier()),
+    ok = ?convert_error(atom, identifier()),
+    true = port_close(Port).
 
-    Ref = totype(BinaryRef, reference()),
-    Ref = totype(ListRef, reference()),
-    Ref = totype(Ref, reference()).
+%%=====================================
+%% node()
+%%=====================================
+%% @doc node() :: atom()
+%% @end
+-type node_type() :: node().
+node_validation_test() ->
+    true = istype(return_value(atom), node()),
+    false = istype(return_value(<<"binary">>), node()).
 
-tuple_test() ->
-    %-type tuple0()  :: tuple().
-    false = istype(return_value(atom), tuple0()),
-    true = istype(return_value({}), tuple0()),
-    true = istype(return_value({atom}), tuple0()),
+node_conversion_test() ->
+    atom = totype(atom, node()),
+    atom = totype(<<"atom">>, node()),
+    atom = totype("atom", node()),
+    ok = ?convert_error(1, node()).
 
-    {} = totype({}, tuple0()),
-    {} = totype([], tuple0()),
-    {atom} = totype({atom}, tuple0()),
+%%=====================================
+%% timeout()
+%%=====================================
+%% @doc timeout() :: 'infinity' | non_neg_integer()
+%% @end
+-type timeout_type() :: timeout().
+timeout_validation_test() ->
+    false = istype(return_value(atom), timeout()),
+    true = istype(return_value(infinity), timeout()),
+    true = istype(return_value(0), timeout()),
+    true = istype(return_value(1), timeout()),
+    false = istype(return_value(-1), timeout()).
 
-    %-type tuple1()  :: {}.
-    false = istype(return_value(atom), tuple1()),
-    true = istype(return_value({}), tuple1()),
-    false = istype(return_value({atom}), tuple1()),
+timeout_conversion_test() ->
+    infinity = totype(infinity, timeout()),
+    infinity = totype(<<"infinity">>, timeout()),
+    infinity = totype("infinity", timeout()),
+    
+    0 = totype(<<"0">>, timeout()),
+    0 = totype(0.0, timeout()),
+    0 = totype(0, timeout()),
+    0 = totype("0", timeout()),
 
-    {} = totype({}, tuple1()),
-    {} = totype([], tuple1()),
-    ok = try
-             totype([atom], tuple1())
-         catch
-             error:{istype_conversion, _, _} ->
-                ok;
-             _:_ ->
-                 wrong_error
-         end,
+    ok = ?convert_error(atom, timeout()),
+    ok = ?convert_error(-1, timeout()).
 
-    %-type tuple2()  :: {atom}.
-    false = istype(return_value(atom), tuple2()),
-    false = istype(return_value({}), tuple2()),
-    true = istype(return_value({atom}), tuple2()),
-    false = istype(return_value({also}), tuple2()),
-    false = istype(return_value({atom, atom}), tuple2()),
+%%=====================================
+%% no_return()
+%%=====================================
+%% @doc no_return() :: none()
+%% @end
+-type no_return_type() :: no_return().
+no_return_validation_test() ->
+    false = istype(return_value(atom), no_return()).
+    false = istype(return_value(<<"binary">>), no_return()).
+    false = istype(return_value(1.0), no_return()).
+    false = istype(return_value(1), no_return()).
+    false = istype(return_value("list"), no_return()).
 
-    {atom} = totype({atom}, tuple2()),
-    {atom} = totype([<<"atom">>], tuple2()),
-    ok = try
-             totype([also], tuple2())
-         catch
-             error:{istype_conversion, _, _} ->
-                ok;
-             _:_ ->
-                 wrong_error
-         end,
-    ok = try
-             totype([atom, <<"also">>], tuple2())
-         catch
-             error:{istype_conversion, _, _} ->
-                ok;
-             _:_ ->
-                 wrong_error
-         end,
+no_return_conversion_test() ->
+    ok = ?convert_error(atom, no_return()),
+    ok = ?convert_error(<<"binary">>, no_return()),
+    ok = ?convert_error(1.0, no_return()),
+    ok = ?convert_error(1, no_return()),
+    ok = ?convert_error("list", no_return()).
 
-    %-type tuple3()  :: {atom, atom()}.
-    false = istype(return_value(atom), tuple3()),
-    false = istype(return_value({atom}), tuple3()),
-    true = istype(return_value({atom, atom}), tuple3()),
-    true = istype(return_value({atom, also}), tuple3()),
-    false = istype(return_value({also, also}), tuple3()),
-    false = istype(return_value({atom, atom, atom}), tuple3()),
+%%=====================================
+%% non_neg_integer()
+%%=====================================
+%% @doc non_neg_integer() :: 0..
+%% @end
+-type non_neg_integer_type() :: non_neg_integer().
+non_neg_integer_validation_test() ->
+    false = istype(return_value(atom), non_neg_integer()),
+    false = istype(return_value(-1), non_neg_integer()),
+    true = istype(return_value(0), non_neg_integer()).
 
-    {atom, also} = totype({atom, also}, tuple3()),
-    {atom, also} = totype([<<"atom">>, "also"], tuple3()),
-    ok = try
-             totype([also, <<"atom">>], tuple3())
-         catch
-             error:{istype_conversion, _, _} ->
-                ok;
-             _:_ ->
-                 wrong_error
-         end,
-    ok = try
-             totype(["atom", 12], tuple3())
-         catch
-             error:{istype_conversion, _, _} ->
-                ok;
-             _:_ ->
-                 wrong_error
-         end,
+non_neg_integer_conversion_test() ->
+    0 = totype(<<"0.0">>, non_neg_integer()),
+    0 = totype(<<"0">>, non_neg_integer()),
+    0 = totype(0.0, non_neg_integer()),
+    0 = totype(0, non_neg_integer()),
+    0 = totype("0.0", non_neg_integer()),
+    0 = totype("0", non_neg_integer()),
 
-    %-type tuple4()  :: {atom, atom() | binary()}.
-    false = istype(return_value(atom), tuple4()),
-    false = istype(return_value({atom}), tuple4()),
-    true = istype(return_value({atom, atom}), tuple4()),
-    true = istype(return_value({atom, also}), tuple4()),
-    true = istype(return_value({atom, <<"binary">>}), tuple4()),
-    false = istype(return_value({also, atom}), tuple4()),
-    false = istype(return_value({atom, 1}), tuple4()),
-    false = istype(return_value({atom, atom, atom}), tuple4()),
+    ok = ?convert_error(atom, non_neg_integer()),
+    ok = ?convert_error(-1, non_neg_integer()).
 
+%%=====================================
+%% pos_integer()
+%%=====================================
+%% @doc pos_integer() :: 1..
+%% @end
+-type pos_integer_type() :: pos_integer().
+pos_integer_validation_test() ->
+    false = istype(return_value(atom), pos_integer()),
+    false = istype(return_value(0), pos_integer()),
+    true = istype(return_value(1), pos_integer()).
 
-    {atom, atom} = totype({atom, atom}, tuple4()),
-    {atom, also} = totype({atom, <<"also">>}, tuple4()),
-    {atom, also} = totype([<<"atom">>, "also"], tuple4()),
-    {atom, <<"1">>} = totype([<<"atom">>, 1], tuple4()),
-    ok = try
-             totype([also, <<"atom">>], tuple4())
-         catch
-             error:{istype_conversion, _, _} ->
-                ok;
-             _:_ ->
-                 wrong_error
-         end,
-    ok = try
-             totype(["atom", {}], tuple4())
-         catch
-             error:{istype_conversion, _, _} ->
-                ok;
-             _:_ ->
-                 wrong_error
-         end.
+pos_integer_conversion_test() ->
+    1 = totype(<<"1.0">>, pos_integer()),
+    1 = totype(<<"1">>, pos_integer()),
+    1 = totype(1.0, pos_integer()),
+    1 = totype(1, pos_integer()),
+    1 = totype("1.0", pos_integer()),
+    1 = totype("1", pos_integer()),
 
-union_test() ->
-    true = istype(atom, union0()),
-    false = istype(also, union0()),
-    true = istype(<<"binary">>, union0()),
-    false = istype(1.0, union0()),
-    true = istype(1, union0()),
+    ok = ?convert_error(atom, pos_integer()),
+    ok = ?convert_error(0, pos_integer()).
 
-    atom = totype(atom, union0()),
-    atom = totype(<<"atom">>, union0()),
-    1 = totype(1, union0()),
-    1 = totype("1.0", union0()),
-    <<"also">> = totype(also, union0()),
-    <<"binary">> = totype("binary", union0()),
+%%=====================================
+%% neg_integer()
+%%=====================================
+%% @doc neg_integer() :: ..-1
+%% @end
+-type neg_integer_type() :: neg_integer().
+neg_integer_validation_test() ->
+    false = istype(return_value(atom), neg_integer()),
+    false = istype(return_value(0), neg_integer()),
+    true = istype(return_value(-1), neg_integer()).
 
-    true = istype(atom, union1()),
-    false = istype(also, union1()),
-    true = istype(<<"binary">>, union1()),
-    true = istype(1.0, union1()),
-    true = istype(1, union1()),
+neg_integer_conversion_test() ->
+    -1 = totype(<<"-1.0">>, neg_integer()),
+    -1 = totype(<<"-1">>, neg_integer()),
+    -1 = totype(-1.0, neg_integer()),
+    -1 = totype(-1, neg_integer()),
+    -1 = totype("-1.0", neg_integer()),
+    -1 = totype("-1", neg_integer()),
 
-    atom = totype(atom, union1()),
-    atom = totype(<<"atom">>, union1()),
-    1.0 = totype(1, union1()),
-    1.0 = totype("1.0", union1()),
-    <<"also">> = totype(also, union1()),
-    <<"binary">> = totype("binary", union1()),
+    ok = ?convert_error(atom, neg_integer()),
+    ok = ?convert_error(0, neg_integer()).
 
-    true = istype(infinity, timeout()),
-    true = istype(0, timeout()),
-    true = istype(1, timeout()),
-    false = istype(-1, timeout()).
+%%=====================================
+%% nonempty_maybe_improper_list()
+%%=====================================
+%% @doc nonempty_maybe_improper_list() :: nonempty_maybe_improper_list(any(), any())
+%% @end
 
+%%=====================================
+%% nonempty_improper_list(Type1, Type2)
+%%=====================================
+%% @doc nonempty_improper_list(Type1, Type2)
+%% @end
+
+%%=====================================
+%% nonempty_maybe_improper_list(Type1, Type2)
+%%=====================================
+%% @doc nonempty_maybe_improper_list(Type1, Type2)
+%% @end
+
+%%=====================================
+%% Record
+%%=====================================
+-type record_a_type() :: #record_a{}.
+-type typed_record_a_type() :: #record_a{e :: binary()}.
+-type record_b_type() :: #record_b{}.

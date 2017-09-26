@@ -9,13 +9,9 @@ parse_transform(Forms, _Options) ->
     %forms:map(fun(Form) -> do_transform(Form, UserTypes) end, Forms).
     Records = forms:reduce(fun get_records/2, #{}, Forms),
     Types = forms:reduce(fun get_types/2,
-                         #{iolist => {type, list, [{literal, atom, empty},
-                                                   {type, union, [parse_type({type, 1, byte, []}),
-                                                                  parse_type({type, 1, binary, []}),
-                                                                  parse_type({type, 1, iolist, []})]},
-                                                   {type, union, [parse_type({type, 1, binary, []}),
-                                                                  parse_type({type, 1, nil, []})]}]}},
+                         #{iolist => parse_type({type, 1, iolist, []})},
                          Forms),
+    io:format("Parsed Types \n~p\n", [Types]),
     forms:map(fun(Form) ->
                   do_transform(Form, Types, Records)
               end,
@@ -30,7 +26,7 @@ do_transform({call, Line, {atom, _, istype}, [Value, Type]}, Types, Records) ->
     %%     __IsType_1 = expression(),
     %%     is_integer(__IsType_1) orelse is_boolean(__IsType_1) ...
     %% end
-    optimize_istype(Line, Value, parse_type(Type), Types, Records);
+    optimize_istype(Line, Value, try_parse_type(Type), Types, Records);
 do_transform({call, Line, {atom, _, totype}, [Value, Type]}, Types, Records) ->
     %% try
     %%     __IsType_1 = totype:convert(Value, TypeInfo),
@@ -56,7 +52,7 @@ do_transform({call, Line, {atom, _, totype}, [Value, Type]}, Types, Records) ->
                      {atom, Line, istype_lib},
                      {atom, Line, convert}},
                  [Value,
-                  type_to_convert_data(Line, parse_type(Type), Types, Records),
+                  type_to_convert_data(Line, try_parse_type(Type), Types, Records),
                   erl_parse:abstract(Types, [{line, Line}]),
                   {map, Line, TypeConvertDataRecords}]}},
          do_transform({call, Line,
@@ -411,174 +407,643 @@ type_to_convert_data(Line, {type, Type, FieldTypes}, Types, Records) when Type =
     {tuple, Line,
         [{atom, Line, type},
          {atom, Line, Type},
-         cons_map(fun(Line0, FieldType) ->
-                      type_to_convert_data(Line0, FieldType, Types, Records)
-                  end,
-                  Line,
-                  FieldTypes)]};
+         erl_parse:abstract(lists:map(fun(Line0, FieldType) ->
+                                          type_to_convert_data(Line0, FieldType, Types, Records)
+                                      end,
+                                      FieldTypes),
+                            [{line, Line}])]};
 %% @doc the type is not a primitive, we need to examine it's components.
 %% @end
 type_to_convert_data(Line, {_, Type, _}, Types, Records) ->
     #{Type := TypeSpec} = Types,
     type_to_convert_data(Line, TypeSpec, Types, Records).
 
-%%====================================================================
+%%=============================================================================
 %% parsing functions
-%%====================================================================
+%%=============================================================================
 %% @doc Functions that are responsible for converting type specs and
 %%      calls that represent type specs into the interlan type format.
 %% @end
-%% @doc Convert a raw literal value, a raw type, a call that represents
-%%      a type, or a record that represents a type into a parsed_type.
+
+try_parse_type(Type) ->
+    try
+        io:format("Try parsing ~p\n", [Type]),
+        parse_type(Type)
+    catch
+        Class:Error ->
+            Stack = erlang:get_stacktrace(),
+            io:format("Error when parsing ~p\n", [Type]),
+            io:format("~p:~p\n", [Class, Error]),
+            io:format("~p\n", [Stack]),
+            error(badarg)
+    end.
+
+%%=========================================================
+%% parse_type
+%%=========================================================
+%% @doc Converts a Type, calls representing a type, and literals
+%%      into the internal type format.
 %% @end
-%% @doc Some literals are represented as an operation agains the literal.
-%%      Process the operation then parse the resulting literal.
+%%=====================================
+%% any()
+%%=====================================
+%% @doc Expect :: {type, _, any, []}
+%%              | {call, _, {atom, _, any}, []}
+%%
+%%      All cases can be handled by the default handler.
 %% @end
-parse_type({op, _, '-', {integer, Line, Value}}) ->
-    parse_type({integer, Line, -1 * Value});
-%% @doc Literal values. Should only ever be atom() or integer()
+%%=====================================
+%% none()
+%%=====================================
+%% @doc Expect :: {type, _, none, []}
+%%              | {call, _, {atom, _, none}, []}
+%%
+%%      All cases can be handled by the default handler.
 %% @end
-parse_type({Type, _, Value}) ->
-    {literal, Type, Value};
-%% @doc Primitive types
+%%=====================================
+%% pid()
+%%=====================================
+%% @doc Expect :: {type, _, pid, []}
+%%              | {call, _, {atom, _, pid}, []}
+%%
+%%      All cases can be handled by the default handler.
 %% @end
-%% @doc atom - handled by the default handler.
+%%=====================================
+%% port()
+%%=====================================
+%% @doc Expect :: {type, _, port, []}
+%%              | {call, _, {atom, _, port}, []}
+%%
+%%      All cases can be handled by the default handler.
 %% @end
-%% @doc float - handled by the default handler.
+%%=====================================
+%% reference()
+%%=====================================
+%% @doc Expect :: {type, _, reference, []}
+%%              | {call, _, {atom, _, reference}, []}
+%%
+%%      All cases can be handled by the default handler.
 %% @end
-%% @doc integer - handled by the default handler.
+%%=====================================
+%% [] - nil()
+%%=====================================
+%% @doc Expect :: {type, _, nil, []}
+%%              | {call, _, {atom, _, nil}, []}
+%%              | TODO: Fill In Literal
+%%
+%%      All cases can be handled by the default handler.
 %% @end
-%% @doc map - handled by the default handler.
+%%=====================================
+%% Atom
+%%=====================================
+%% atom()
+%%=================
+%% @doc Expect :: {type, _, atom, []}
+%%              | {call, _, {atom, _, atom}, []}
+%%
+%%      All cases can be handled by the default handler.
 %% @end
-%% @doc pid - handled by the default handler.
+%%=================
+%% Erlang_Atom
+%%=================
+%% @doc Expect :: {atom, _, Erlang_Atom}
+%%
+%%      Erlang_Atoms need to be treated as literals.
 %% @end
-%% @doc port - handled by the default handler.
+parse_type({atom, _, Atom}) ->
+    {literal, atom, Atom};
+%%=====================================
+%% Bitstring
+%%=====================================
+%% @doc Expect :: <<>>
+%%              | <<_:M>>
+%%              | <<_:_*N>>
+%%              | <<_:M, _:_*N>>
+%%
+%%      These patterns represent specific bitstrings formats.
+%%      They need to be treated as literal values and should only
+%%      be found within type specs.
+%% @end
+%%=====================================
+parse_type({type, _, binary, [{integer, _, M}, {integer, _, N}]}) ->
+    {type, bitstring, {M, N}};
+%% float()
+%%=====================================
+%% @doc Expect :: {type, _, float, []}
+%%              | {call, _, {atom, _, float}, []}
+%%
+%%      All cases can be handled by the default handler.
+%% @end
+%%=====================================
+%% Fun
+%%=====================================
+%% @doc Expect :: {type, _, 'fun', []},
+%%              | {call, _, {atom, _, 'fun'}, []},
+%%              | {type, _, 'fun', [{type, _, any}, ReturnType]}
+%%              | {type, _, 'fun', [{type, _, product, []}, ReturnType]}
+%%              | {type, _, 'fun', [{type, _, product, ParameterTypes}, ReturnType]}
+%%
+%%      The forms for fun() will be handled by the default handler.
+%% @end
+parse_type({type, _, 'fun', [{type, _, any}, ReturnType]}) ->
+    {type, 'fun', [any, parse_type(ReturnType)]};
+parse_type({type, _, 'fun', [{type, _, product, ParameterTypes}, ReturnType]}) ->
+    {type, 'fun', [lists:map(fun parse_type/1, ParameterTypes), parse_type(ReturnType)]};
+%%=====================================
+%% Integer
+%%=====================================
+%% @doc Expect :: {type, _, integer, []}
+%%              | {call, _, {atom, _, integer}, []}
+%%
+%%      All cases can be handled by the default handler.
+%% @end
+%%=====================================
+%% Erlang_Integer
+%%=====================================
+%% @doc Expect :: {integer, _, Erlang_Integer}
+%%
+%%      Erlang_Integers need to be treated as literals.
+%% @end
+parse_type({integer, _, Integer}) ->
+    {literal, integer, Integer};
+parse_type({op, _, '-', {integer, _, Integer}}) ->
+    {literal, integer, -1 * Integer};
+%%=====================================
+%% Erlang_Integer..Erlang_Integer
+%%=====================================
+%% @doc Expect :: {type, _, range, [Erlang_Integer, Erlang_Integer]}
+%%
+%%      Ranges of Erlang_Integers.
 %% @end
 parse_type({type, _, range, [Low, High]}) ->
-    {literal, integer, LowInt} = parse_type(Low),
-    {literal, integer, HighInt} = parse_type(High),
-    {type, range, {LowInt, HighInt}};
-
-%% @doc Record as seen in a type spec.
+    {literal, _, LowBound} = parse_type(Low),
+    {literal, _, HighBound} = parse_type(High),
+    {type, range, {LowBound, HighBound}};
+%%=====================================
+%% List
+%%=====================================
+%% @doc Expect :: {type, _, list, [Type]}
+%%              | {call, _, {atom, _, list}, [Type]}
+%%              | {type, _, maybe_improper_list, [Type1, Type2]}
+%%              | {call, _, {atom, _, maybe_improper_list}, [Type1, Type2]}
+%%              | {type, _, nonempty_improper_list, [Type1, Type2]}
+%%              | {call, _, {atom, _, nonempty_improper_list}, [Type1, Type2]}
+%%              | {type, _, nonempty_list, [Type]}
+%%              | {call, _, {atom, _, nonempty_list}, [Type]}
+%%
+%%      Lists can't be validated/converted in constant time. All Lists can be 
+%%      validatd/converted with a common algorithm. Convert all List variants
+%%      into an standardized internal format.
+%%
+%%      Calls are handled by the default call handler.
 %% @end
-parse_type({type, _, record, [{atom, _, Record} | FieldTypes]}) ->
-    {type, record, {Record, lists:map(fun parse_type/1, FieldTypes)}};
-%% @doc reference - handled by the default handler.
+parse_type({type, _, list, [Type]}) ->
+    {type, list, [empty, parse_type(Type), parse_type({type, 1, nil, []})]};
+parse_type({type, _, maybe_improper_list, Types}) ->
+    {type, list, [empty | lists:map(fun parse_type/1, Types)]};
+parse_type({type, _, nonempty_improper_list, Types}) ->
+    {type, list, [nonempty | lists:map(fun parse_type/1, Types)]};
+parse_type({type, _, nonempty_list, [Type]}) ->
+    {type, list, [nonempty, parse_type(Type), parse_type({type, 1, nil, []})]};
+%%=====================================
+%% Map
+%%=====================================
+%% @doc Expect :: {type, _, map, any}           %% Any Map
+%%              | {call, _, {atom, _, map}, []} %% Any Map
+%%              | {type, _, map, []}            %% Empty Map
+%%              | {type, _, map, MapFields}     %% Typed Map
+%%
+%%      MapFields :: list({type, _, map_field_assoc, Types})
+%%                 | list({type, _, map_field_exact, Types})
+%%      
+%%      A call to map() is treated as any map.
+%%      TODO: Add literals
 %% @end
-%% @doc tuple that matches any tuple. tuple()
+parse_type({type, _, map, any}) ->
+    {type, map, any};
+parse_type({call, _, {atom, _, map}, []}) ->
+    {type, map, any};
+parse_type({type, _, map, []}) ->
+    {type, map, empty};
+parse_type({type, _, map, MapFields}) ->
+    {type, map, lists:map(fun parse_map_field/1, MapFields)};
+%%=====================================
+%% Tuple
+%%=====================================
+%% @doc Expect :: {type, _, tuple, any}           %% Any Tuple
+%%              | {call, _, {atom, _, tuple}, []} %% Any Tuple
+%%              | {type, _, tuple, []}            %% Empty Tuple
+%%              | {type, _, tuple, FieldTypes}    %% Typed Tuple
+%%
+%%      TODO: Add literals
 %% @end
 parse_type({type, _, tuple, any}) ->
     {type, tuple, any};
-%% @doc tuple that matches the empty tuple. {}
-%% @end
+parse_type({call, _, tuple, []}) ->
+    {type, tuple, any};
 parse_type({type, _, tuple, []}) ->
-    {type, tuple, none};
-%% @doc tuples with field types are handled by the default handler.
+    {type, tuple, empty};
+parse_type({type, _, tuple, FieldTypes}) ->
+    {type, tuple, lists:map(fun parse_type/1, FieldTypes)};
+%%=====================================
+%% Union
+%%=====================================
+%% @doc Expect :: {type, _, union, Types} %% Any Tuple
 %% @end
-%% @doc union - handled by the default handler.
+parse_type({type, _, union, Types}) ->
+    {type, union, lists:map(fun parse_type/1, Types)};
+%%=====================================
+%% term()
+%%=====================================
+%% @doc Expect :: {type, _, term, []}
+%%              | {call, _, {atom, _, term}, []}
+%%      Alias for any().
+%%
+%%      Calls are handled by the default call handler.
 %% @end
-%% @doc 7.1: Built-in types, predefined aliases
+parse_type({type, Line, term, []}) ->
+    parse_type({type, Line, any, []});
+%%=====================================
+%% binary()
+%%=====================================
+%% @doc Expect :: {type, _, binary, []}
+%%              | {call, _, {atom, _, binary}, []}
+%%
+%%      Alias for <<_:_*8>>.
+%%      All cases can be handled by the default handler.
 %% @end
-parse_type({type, _, term, _}) ->
-    {type, any, []};
-%% @doc binary - handled by the default handler.
+%%=====================================
+%% bitstring()
+%%=====================================
+%% @doc Expect :: {type, _, bitstring, []}
+%%              | {call, _, {atom, _, bitstring}, []}
+%%
+%%      Alias for <<_:_*1>>.
+%%      All cases can be handled by the default handler.
 %% @end
-%% @doc bitstring - handled by the default handler.
+%%=====================================
+%% boolean()
+%%=====================================
+%% @doc Expect :: {type, _, boolean, []}
+%%              | {call, _, {atom, _, boolean}, []}
+%%
+%%      Alias for 'true' | 'false'.
+%%      All cases can be handled by the default handler.
 %% @end
-%% @doc boolean - handled by the default handler.
+%%=====================================
+%% byte()
+%%=====================================
+%% @doc Expect :: {type, _, byte, []}
+%%              | {call, _, {atom, _, byte}, []}
+%%
+%%      Alias for 0..255.
+%%
+%%      Calls are handled by the default call handler.
 %% @end
-parse_type({type, _, byte, _}) ->
-    {type, range, {0, 255}};
-parse_type({type, _, char, _}) ->
-    {type, range, {0, 16#10ffff}};
-%% @doc nil - handled by the default handler.
+parse_type({type, Line, byte, []}) ->
+    parse_type({type, Line, range, [{integer, Line, 0},
+                                     {integer, Line, 255}]});
+%%=====================================
+%% char()
+%%=====================================
+%% @doc Expect :: {type, _, char, []}
+%%              | {call, _, {atom, _, char}, []}
+%%
+%%      Alias for 0..16#110000.
+%%
+%%      Calls are handled by the default call handler.
 %% @end
-%% @doc number - handled by the default handler.
+parse_type({type, Line, char, []}) ->
+    parse_type({type, Line, range, [{integer, Line, 0},
+                                     {integer, Line, 16#110000}]});
+%%=====================================
+%% nil()
+%%=====================================
+%% @doc Alias for [].
+%%      All cases handled by [] above.
 %% @end
-%% @doc list() - handled by the default handler.
+%%=====================================
+%% number()
+%%=====================================
+%% @doc Expect :: {type, _, number, []}
+%%              | {call, _, {atom, _, number}, []}
+%%
+%%      Alias for integer() | float().
+%%      All cases can be handled by the default handler.
 %% @end
-parse_type({type, Line, list, [ListType]}) ->
-    parse_type({type, Line, listspec, [{atom, Line, empty}, ListType, {type, Line, nil, []}]});
-parse_type({type, Line, maybe_improper_list, TypeArgs}) ->
-    parse_type({type, Line, listspec, [{atom, Line, empty} | TypeArgs]});
+%%=====================================
+%% list()
+%%=====================================
+%% @doc Expect :: {type, _, list, []}
+%%              | {call, _, {atom, _, list}, []}
+%%
+%%      Alias for list(any()).
+%%
+%%      Calls handled by List above.
+%% @end
+parse_type({type, Line, list, []}) ->
+    parse_type({type, Line, list, [{type, Line, any, []}]});
+%%=====================================
+%% maybe_improper_list()
+%%=====================================
+%% @doc Expect :: {type, _, maybe_improper_list, []}
+%%              | {call, _, {atom, _, maybe_improper_list}, []}
+%%
+%%      Alias for maybe_improper_list(any(), any()).
+%%
+%%      Calls handled by the default call handler.
+%% @end
+parse_type({type, Line, maybe_improper_list, []}) ->
+    parse_type({type, Line, maybe_improper_list, [{type, Line, any, []},
+                                                  {type, Line, any, []}]});
+%%=====================================
+%% nonempty_list()
+%%=====================================
+%% @doc Expect :: {type, _, nonempty_list, []}
+%%              | {call, _, {atom, _, nonempty_list}, []}
+%%
+%%      Alias for nonempty_list(any()).
+%%
+%%      Calls handled by the default call handler.
+%% @end
 parse_type({type, Line, nonempty_list, []}) ->
-    parse_type({type, Line, listspec, [{atom, Line, nonempty}, {type, Line, any, []}, {type, Line, nil, []}]});
+    parse_type({type, Line, nonempty_list, [{type, Line, any, []}]});
+%%=====================================
+%% string()
+%%=====================================
+%% @doc Expect :: {type, _, string, []}
+%%              | {call, _, {atom, _, string}, []}
+%%
+%%      Alias for list(char()).
+%%
+%%      Calls handled by the default call handler.
+%% @end
 parse_type({type, Line, string, []}) ->
-    parse_type({type, Line, listspec, [{atom, Line, empty}, {type, Line, char, []}, {type, Line, nil, []}]});
-parse_type({type, Line, nonempty_string, []}) ->
-    parse_type({type, Line, listspec, [{atom, Line, nonempty}, {type, Line, char, []}, {type, Line, nil, []}]});
-parse_type({type, Line, iodata, _}) ->
-    Type = {type, Line, union, [{type, Line, iolist, []},
-                                {type, Line, binary, []}]},
-    parse_type(Type);
-%% @doc iolist - handled by the default handler.
+    parse_type({type, Line, list, [{type, Line, char, []}]});
+%%=====================================
+%% nonempty_string()
+%%=====================================
+%% @doc Expect :: {type, _, nonempty_string, []}
+%%              | {call, _, {atom, _, nonempty_string}, []}
+%%
+%%      Alias for [char, ...], aka, nonempty_list(char()).
+%%
+%%      Calls handled by the default call handler.
 %% @end
-parse_type({type, _, function, _}) ->
-    {type, 'fun', []};
-parse_type({type, _, module, _}) ->
-    {type, atom, []};
-parse_type({type, Line, mfa, _}) ->
-    Type = {type, Line, tuple, [{type, Line, module, []},
-                                {type, Line, atom, []},
-                                {type, Line, arity, []}]},
-    parse_type(Type);
-parse_type({type, _, arity, _}) ->
-    {type, range, {0, 255}};
-parse_type({type, Line, identifier, _}) ->
-    Type = {type, Line, union, [{type, Line, pid, []},
-                                {type, Line, port, []},
-                                {type, Line, reference, []}]},
-    parse_type(Type);
-parse_type({type, _, node, _}) ->
-    {type, atom, []};
-parse_type({type, Line, timeout, _}) ->
-    Type = {type, Line, union, [{atom, Line, infinity},
-                                {type, Line, non_neg_integer, []}]},
-    parse_type(Type);
-%% @doc no_return - Not implemented yet, and not certain if possible...
+parse_type({Class, Line, nonempty_string, []}) ->
+    parse_type({type, Line, nonempty_list, [{type, Line, char, []}]});
+%%=====================================
+%% iodata()
+%%=====================================
+%% @doc Expect :: {type, _, iodata, []}
+%%              | {call, _, {atom, _, iodata}, []}
+%%
+%%      Alias for iolist() | binary().
+%%
+%%      Calls handled by the default call handler.
 %% @end
-%% @doc 7.2: Additional built-in types
+parse_type({type, Line, iodata, []}) ->
+    parse_type({type, Line, union, [{type, Line, iolist, []},
+                                    {type, Line, binary, []}]});
+%%=====================================
+%% iolist()
+%%=====================================
+%% @doc Expect :: {type, _, iolist, []}
+%%              | {call, _, {atom, _, iolist}, []}
+%%
+%%      Internal :: {type, iolist, []}
+%%
+%%      Alias for maybe_improper_list(byte() | binary() | iolist(),
+%%                                    binary() | [])
+%%
+%%      We have to expect the internal representation as well to
+%%      prevent infinite recursion.
+%%
+%%      Calls handled by the default call handler.
 %% @end
-parse_type({type, _, non_neg_integer, _}) ->
-    {type, range, {0, undefined}};
-parse_type({type, _, pos_integer, _}) ->
-    {type, range, {1, undefined}};
-parse_type({type, _, neg_integer, _}) ->
-    {type, range, {undefined, -1}};
-%% @doc Rarely used built-in types
+parse_type({type, Line, iolist, []}) ->
+    Type1 = {type, Line, union, [{type, Line, byte, []},
+                                 {type, Line, binary, []},
+                                 {type, iolist, []}]},
+    Type2 = {type, Line, union, [{type, Line, binary, []},
+                                 {type, Line, nil, []}]},
+    parse_type({type, Line, maybe_improper_list, [Type1, Type2]});
+parse_type({type, iolist, []} = Iolist) ->
+    Iolist;
+%%=====================================
+%% function()
+%%=====================================
+%% @doc Expect :: {type, _, function, []}
+%%              | {call, _, {atom, _, function}, []}
+%%
+%%      Alias for fun().
+%%      All cases can be handled by the default handler.
 %% @end
-parse_type({type, Line, nonempty_maybe_improper_list, TypeArgs}) ->
-    parse_type({type, Line, listspec, [{atom, Line, nonempty} | TypeArgs]});
-parse_type({type, Line, nonempty_improper_list, TypeArgs}) ->
-    parse_type({type, Line, listspec, [{atom, Line, nonempty} | TypeArgs]});
-%% @doc Type components
+%%=====================================
+%% module()
+%%=====================================
+%% @doc Expect :: {type, _, module, []}
+%%              | {call, _, {atom, _, module}, []}
+%%
+%%      Alias for atom().
+%%
+%%      Calls handled by the default call handler.
 %% @end
-%% @doc field_type is a component of a record as a type.
+parse_type({type, Line, module, []}) ->
+    parse_type({type, Line, atom, []});
+%%=====================================
+%% mfa()
+%%=====================================
+%% @doc Expect :: {type, _, mfa, []}
+%%              | {call, _, {atom, _, mfa}, []}
+%%
+%%      Alias for {module(), atom(), arity()}.
+%%
+%%      Calls handled by the default call handler.
 %% @end
-parse_type({type, _, field_type, [{atom, _, Field}, Type]}) ->
-    {Field, parse_type(Type)};
-%% @doc Internal type that represents the typing for a complex list.
+parse_type({type, Line, mfa, []}) ->
+    parse_type({type, Line, tuple, [{type, Line, module, []},
+                                    {type, Line, atom, []},
+                                    {type, Line, arity, []}]});
+%%=====================================
+%% arity()
+%%=====================================
+%% @doc Expect :: {type, _, arity, []}
+%%              | {call, _, {atom, _, arity}, []}
+%%
+%%      Alias for 0..255.
+%%
+%%      Calls handled by the default call handler.
 %% @end
-parse_type({type, _, listspec, ListTypes}) when length(ListTypes) =:= 3 ->
-    {type, list, lists:map(fun parse_type/1, ListTypes)};
-%% @doc Default type handler
+parse_type({type, Line, arity, []}) ->
+    parse_type({type, Line, range, [{integer, Line, 0},
+                                    {integer, Line, 255}]});
+%%=====================================
+%% identifier()
+%%=====================================
+%% @doc Expect :: {type, _, identifier, []}
+%%              | {call, _, {atom, _, identifier}, []}
+%%
+%%      Alias for pid() | port() | reference().
+%%
+%%      Calls handled by the default call handler.
 %% @end
+parse_type({type, Line, identifier, []}) ->
+    parse_type({type, Line, union, [{type, Line, pid, []},
+                                    {type, Line, port, []},
+                                    {type, Line, reference, []}]});
+%%=====================================
+%% node()
+%%=====================================
+%% @doc Expect :: {type, _, node, []}
+%%              | {call, _, {atom, _, node}, []}
+%%
+%%      Alias for atom().
+%%
+%%      Calls handled by the default call handler.
+%% @end
+parse_type({type, Line, node, []}) ->
+    parse_type({type, Line, atom, []});
+%%=====================================
+%% timeout()
+%%=====================================
+%% @doc Expect :: {type, _, timeout, []}
+%%              | {call, _, {atom, _, timeout}, []}
+%%
+%%      Alias for 'infinity' | non_neg_integer().
+%%
+%%      Calls handled by the deafault call handler.
+%% @end
+parse_type({type, Line, timeout, []}) ->
+    parse_type({type, Line, union, [{atom, Line, 'infinity'},
+                                    {type, Line, non_neg_integer, []}]});
+%%=====================================
+%% no_return()
+%%=====================================
+%% @doc Expect :: {type, _, no_return, []}
+%%              | {call, _, {atom, _, no_return}, []}
+%%
+%%      Alias for none().
+%%
+%%      Calls handled by the default call handler.
+%% @end
+parse_type({type, Line, no_return, []}) ->
+    parse_type({type, Line, none, []});
+%%=====================================
+%% non_neg_integer()
+%%=====================================
+%% @doc Expect :: {type, _, non_neg_integer, []}
+%%              | {call, _, {atom, _, non_neg_integer}, []}
+%%
+%%      Alias for 0..
+%%
+%%      Calls handled by the default call handler.
+%% @end
+parse_type({type, Line, non_neg_integer, []}) ->
+    parse_type({type, Line, range, [{integer, Line, 0},
+                                     {atom, Line, undefined}]});
+%%=====================================
+%% pos_integer()
+%%=====================================
+%% @doc Expect :: {type, _, pos_integer, []}
+%%              | {call, _, {atom, _, pos_integer}, []}
+%%
+%%      Alias for 1..
+%%
+%%      Calls handled by the default call handler.
+%% @end
+parse_type({type, Line, pos_integer, []}) ->
+    parse_type({type, Line, range, [{integer, Line, 1},
+                                     {atom, Line, undefined}]});
+%%=====================================
+%% neg_integer()
+%%=====================================
+%% @doc Expect :: {type, _, neg_integer, []}
+%%              | {call, _, {atom, _, neg_integer}, []}
+%%
+%%      Alias for ..-1
+%%
+%%      Calls handled by the default call handler.
+%% @end
+parse_type({type, Line, neg_integer, []}) ->
+    parse_type({type, Line, range, [{atom, Line, undefined},
+                                     {integer, Line, -1}]});
+%%=====================================
+%% nonempty_maybe_improper_list()
+%%=====================================
+%% @doc Expect :: {type, _, nonempty_maybe_improper_list, []}
+%%              | {call, _, {atom, _, nonempty_maybe_improper_list}, []}
+%%
+%%      Alias for nonempty_maybe_improper_list(any(), any()).
+%%
+%%      Calls handled by the default call handler.
+%% @end
+parse_type({type, Line, nonempty_maybe_improper_list, []}) ->
+    parse_type({type, Line, nonempty_maybe_improper_list, [{type, Line, any, []},
+                                                           {type, Line, any, []}]});
+%%=====================================
+%% nonempty_improper_list()
+%%=====================================
+%% @doc Expect :: {type, _, nonempty_improper_list, []}
+%%              | {call, _, {atom, _, nonempty_improper_list}, []}
+%%
+%%      Handled in the List section above.
+%% @end
+%%=====================================
+%% nonempty_maybe_improper_list(Type1, Type2)
+%%=====================================
+%% @doc Expect :: {type, _, nonempty_maybe_improper_list, [Type1, Type2]}
+%%              | {call, _, {atom, _, nonempty_maybe_improper_list}, [Type1, Type2]}
+%%
+%%      Alias for nonempty_maybe_improper_list(any(), any()).
+%%
+%%      Calls handled by the default call handler.
+%% @end
+parse_type({type, _, nonempty_maybe_improper_list, Types}) ->
+    {type, list, [nonempty | lists:map(fun parse_type/1, Types)]};
+%%=====================================
+%% Record
+%%=====================================
+%% @doc Expect :: {type, _, record, [Record | FieldOverrides]}
+%%              | {record, _, Record, FieldOverrides}
+%% @end
+parse_type({type, _, record, [{atom, _, Record} | RecordFields0]}) ->
+    io:format("Parse Fields ~p\n", [RecordFields0]),
+    RecordFields1 = lists:map(fun({type, _, field_type, [{atom, _, Field}, FieldType]}) ->
+                                  {Field, parse_type(FieldType)}
+                              end,
+                              RecordFields0),
+    {record, Record, RecordFields1};
+parse_type({record, _, Record, RecordFields}) ->
+    {record, Record, parse_record_fields(RecordFields)};
+
+%%=====================================
+%% Default call handler
+%%=====================================
+parse_type({call, Line, {atom, _, Type}, TypeArgs}) ->
+    parse_type({type, Line, Type, TypeArgs});
+%%=====================================
+%% Default handler
+%%=====================================
 parse_type({Class, _, Type, TypeArgs}) when Class =:= type orelse
                                             Class =:= user_type ->
     {type, Type, lists:map(fun parse_type/1, TypeArgs)};
-%% @doc When outside a typespec a call to a type is seen as a function call.
-%%      Rework into a type and parse as usual.
-%% @end
-parse_type({call, Line, {atom, _, Type}, TypeArgs}) ->
-    parse_type({type, Line, Type, TypeArgs});
-%% @doc Records as types in a call.
-%% @end
-parse_type({record, _, Record, RecordArgs}) ->
-    {type, record, {Record, lists:map(fun parse_type/1, RecordArgs)}}.
 
-%% @doc Parse a record definition preserving necessary attributes.
-%% @end
-parse_record(RecordFields) ->
+parse_type(Type) ->
+    error(Type).
+
+%%=========================================================
+%% parse_record
+%%=========================================================
+parse_map_field({type, _, map_field_exact, Types}) ->
+    list_to_tuple([require | lists:map(fun parse_type/1, Types)]);
+parse_map_field({type, _, map_field_assoc, Types}) ->
+    list_to_tuple([optional | lists:map(fun parse_type/1, Types)]).
+
+%%=========================================================
+%% parse_record
+%%=========================================================
+parse_record_fields(RecordFields) ->
     Arity = length(RecordFields) + 1,
     Fields = lists:map(fun parse_record_field/1, RecordFields),
     FieldTypes = lists:map(fun parse_record_field_type/1, RecordFields),
@@ -616,22 +1081,13 @@ get_var(Line) ->
 %% @doc Function that generates a mapping of types to type specs.
 %% @end
 get_types({attribute, _, type, {Type, TypeSpec, _}}, Acc) ->
-  Acc#{Type => parse_type(TypeSpec)};
+  Acc#{Type => try_parse_type(TypeSpec)};
 get_types(_, Acc) ->
   Acc.
 
 %% @doc Function that generates a mapping of records to record specs.
 %% @end
 get_records({attribute, _, record, {Record, RecordFields}}, Acc) ->
-    Acc#{Record => parse_record(RecordFields)};
+    Acc#{Record => parse_record_fields(RecordFields)};
 get_records(_, Acc) ->
     Acc.
-
-%% @doc Maps a list of values into an abstract list.
-%% @end
-cons_map(_, Line, []) ->
-    {nil, Line};
-cons_map(Fun, Line, [Hd | Tl]) ->
-    {cons, Line,
-        Fun(Line, Hd),
-        cons_map(Fun, Line, Tl)}.
