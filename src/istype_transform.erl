@@ -11,7 +11,6 @@ parse_transform(Forms, _Options) ->
     Types = forms:reduce(fun get_types/2,
                          #{iolist => parse_type({type, 1, iolist, []})},
                          Forms),
-    io:format("Parsed Types \n~p\n", [Types]),
     forms:map(fun(Form) ->
                   do_transform(Form, Types, Records)
               end,
@@ -26,38 +25,40 @@ do_transform({call, Line, {atom, _, istype}, [Value, Type]}, Types, Records) ->
     %%     __IsType_1 = expression(),
     %%     is_integer(__IsType_1) orelse is_boolean(__IsType_1) ...
     %% end
-    optimize_istype(Line, Value, try_parse_type(Type), Types, Records);
-do_transform({call, Line, {atom, _, totype}, [Value, Type]}, Types, Records) ->
+    X = optimize_istype(Line, Value, try_parse_type(Type), Types, Records),
+    try
+        forms:from_abstract(X)
+    catch
+        _:_ ->
+            io:format("Bad form ~p\nGenerated from ~p\n", [X, {call, Line, Value, Type}]),
+            halt()
+    end,
+    X;
+do_transform({call, Line, {atom, _, totype}, [Value, Type0]}, Types, Records) ->
     %% try
-    %%     __IsType_1 = totype:convert(Value, TypeInfo),
+    %%     __IsType_1 = istype_lib:totype(Value, TypeInfo),
     %%     asserttype(__IsType_1, type()),
     %%     __IsTYpe_1
     %% catch
     %%     error:{badmatch, false} ->
     %%         error({istype_conversion, type(), __IsType_1})
     %% end
+    {_, Type, _} = Type1 = try_parse_type(Type0),
     Converted = get_var(Line),
-    TypeConvertDataRecords = lists:map(fun({K, _}) ->
-                                           TypeSpec = {type, record, {K, []}},
-                                           {map_field_assoc, Line,
-                                               {atom, Line, K},
-                                               type_to_convert_data(Line, TypeSpec, Types, Records)}
-                                       end,
-                                       maps:to_list(Records)),
     {'try', Line,
         [{match, Line,
              Converted,
              {call, Line,
                  {remote, Line,
                      {atom, Line, istype_lib},
-                     {atom, Line, convert}},
+                     {atom, Line, totype}},
                  [Value,
-                  type_to_convert_data(Line, try_parse_type(Type), Types, Records),
+                  erl_parse:abstract(Type1, [{line, Line}]),
                   erl_parse:abstract(Types, [{line, Line}]),
-                  {map, Line, TypeConvertDataRecords}]}},
+                  erl_parse:abstract(Records, [{line, Line}])]}},
          do_transform({call, Line,
                           {atom, Line, asserttype},
-                          [Converted, Type]},
+                          [Converted, Type0]},
                       Types,
                       Records),
          Converted],
@@ -85,7 +86,7 @@ do_transform(Form, _, _) ->
     Form.
 
 %%====================================================================
-%% istype fucntions
+%% istype functions
 %%====================================================================
 %% optimize_istype
 %%==========================================================
@@ -156,17 +157,6 @@ optimize_istype(Line, Value, Type, Types, Records) ->
 %%      given value is of the given type.
 %% @end
 %%=====================================
-%% Literals
-%%=====================================
-%% @doc Expect :: {literal, Type, Value}
-%%
-%%      Specific value comparison.
-%% @end
-istype(Line, Value, {literal, Type, Literal}, _, _) ->
-    {op, Line, '=:=',
-        Value,
-        {Type, Line, Literal}};
-%%=====================================
 %% any()
 %%=====================================
 %% @doc Expect :: {type, any, []}
@@ -204,18 +194,20 @@ istype(Line, Value, {type, port, []}, _, _) ->
 %% @doc Expect :: {type, reference, []}
 %% @end
 istype(Line, Value, {type, reference, []}, _, _) ->
-    {call, Line, {atom, Line, is_ref}, [Value]};
+    {call, Line, {atom, Line, is_reference}, [Value]};
 %%=====================================
 %% []
 %%=====================================
-%% @doc Expect :: {type, nil, []}
+%% @doc Expect :: {literal, nil, []}
+%%              | {type, nil, []}
 %%
 %%      Nil is a special type for the value [].
 %% @end
-istype(Line, Value, {type, nil, []}, _, _) ->
+istype(Line, Value, {Class, nil, []}, _, _) when Class =:= literal orelse 
+                                                 Class =:= type ->
     {op, Line, '=:=',
         Value,
-        erl_parse:abstract([], [{line, Line}])};
+        {nil, Line}};
 %%=====================================
 %% Atom
 %%=====================================
@@ -311,13 +303,18 @@ istype(Line, Value, {type, list, ListSpec}, Types, Records) ->
 %%=====================================
 %% Map
 %%=====================================
-%% @doc Expect :: {type, map, any}
+%% @doc Expect :: {literal, map, Map}
+%%              | {type, map, any}
 %%              | {type, map, empty}
 %%              | {type, map, MapFieldSpec}
 %%
 %%      Map specs for any and empty can be evaluated in a guard safe manner.
 %%      All other maps need to be evaluated by istype_lib:istype.
 %% @end
+istype(Line, Value, {literal, map, Map}, _, _)->
+    {op, Line, '=:=',
+        Value,
+        erl_parse:abstract(#{}, [{line, Line}])};
 istype(Line, Value, {type, map, any}, _, _) ->
     {call, Line, {atom, Line, is_map}, [Value]};
 istype(Line, Value, {type, map, empty}, _, _) ->
@@ -342,10 +339,26 @@ istype(Line, Value, {type, tuple, empty}, _, _) ->
 istype(Line, Value, {type, tuple, TupleFieldSpec}, Types, Records) ->
     %% Only validate fields that aren't the any type.
     ValidatedFields = lists:filter(fun({_, Type}) ->
-                                       is_any(Type, Types)
+                                       not is_any(Type, Types)
                                    end,
-                                   TupleFieldSpec),
-    istype_tuple(Line, Value, ValidatedFields, Types, Records);
+                                   lists:zip(lists:seq(1, length(TupleFieldSpec)), TupleFieldSpec)),
+    case length(ValidatedFields) of
+        0 ->
+            {op, Line, 'andalso',
+                {call, Line, {atom, Line, is_tuple}, [Value]},
+                {op, Line, '=:=',
+                    {integer, Line, length(TupleFieldSpec)},
+                    {call, Line, {atom, Line, size}, [Value]}}};
+        _ ->
+            {op, Line, 'andalso',
+                {call, Line, {atom, Line, is_tuple}, [Value]},
+                {op, Line, 'andalso',
+                    {op, Line, '=:=',
+                        {integer, Line, length(TupleFieldSpec)},
+                        {call, Line, {atom, Line, size}, [Value]}},
+                    istype_tuple(Line, Value, ValidatedFields, Types, Records)}}                
+    end;
+
 %%======================================
 %% Union
 %%======================================
@@ -515,15 +528,23 @@ istype(Line, Value, {record, Record, RecordInfo}, Types, Records) ->
     {Arity, Fields, FieldTypes} = RecordInfo,
 
     RecordFields = lists:filter(fun({_, FieldType}) ->
-                                    is_any(FieldType, Types)
+                                    not is_any(FieldType, Types)
                                 end,
                                 lists:zip(Fields, FieldTypes)),
-    {op, Line, 'andalso',
-        {call, Line, {atom, Line, is_record}, [
-            Value,
-            {atom, Line, Record},
-            {integer, Line, Arity}]},
-        istype_record(Line, Value, Record, RecordFields, Types, Records)};
+    case length(RecordFields) of
+        0 ->
+            {call, Line, {atom, Line, is_record}, [
+                    Value,
+                    {atom, Line, Record},
+                    {integer, Line, Arity}]};
+        _ ->
+            {op, Line, 'andalso',
+                {call, Line, {atom, Line, is_record}, [
+                    Value,
+                    {atom, Line, Record},
+                    {integer, Line, Arity}]},
+                istype_record(Line, Value, Record, RecordFields, Types, Records)}
+    end;
 %%======================================
 %% Deep type handler
 %%======================================
@@ -538,6 +559,17 @@ istype(Line, Value, {deep_type, _, _} = TypeSpec, Types, Records) ->
          erl_parse:abstract(TypeSpec, [{line, Line}]),
          erl_parse:abstract(Types, [{line, Line}]),
          erl_parse:abstract(Records, [{line, Line}])]};
+%%=====================================
+%% Literals
+%%=====================================
+%% @doc Expect :: {literal, Type, Value}
+%%
+%%      Specific value comparison.
+%% @end
+istype(Line, Value, {literal, Type, Literal}, _, _) ->
+    {op, Line, '=:=',
+        Value,
+        {Type, Line, Literal}};
 %%======================================
 %% Custom handler
 %%======================================
@@ -589,7 +621,7 @@ istype_union(Line, Value, [UnionType], Types, Records) ->
 istype_union(Line, Value, [UnionType | UnionTypes], Types, Records) ->
     {op, Line, 'orelse',
         istype(Line, Value, UnionType, Types, Records),
-        istype_union(Line, Value, {type, union, UnionTypes}, Types, Records)}.
+        istype_union(Line, Value, UnionTypes, Types, Records)}.
 
 %%==========================================================
 %% istype_record
@@ -599,77 +631,15 @@ istype_union(Line, Value, [UnionType | UnionTypes], Types, Records) ->
 istype_record(Line, Value0, Record, [RecordFieldSpec], Types, Records) ->
     {RecordField, RecordFieldType} = RecordFieldSpec,
     Value1 = {record_field, Line, Value0, Record, {atom, Line, RecordField}},
+    io:format("RecordField ~p\n", [Value1]),
     istype(Line, Value1, RecordFieldType, Types, Records);
 istype_record(Line, Value0, Record, [RecordFieldSpec | RecordFields], Types, Records) ->
     {RecordField, RecordFieldType} = RecordFieldSpec,
     Value1 = {record_field, Line, Value0, Record, {atom, Line, RecordField}},
+    io:format("RecordField ~p\n", [Value1]),
     {op, Line, 'andalso',
         istype(Line, Value1, RecordFieldType, Types, Records),
         istype_record(Line, value, Record, RecordFields, Types, Records)}.
-
-%%====================================================================
-%% totype parse transform
-%%====================================================================
-%% @doc Build a tree that can be traversed to reduce a type into it's
-%%      primitive components. This will be used by the conversion function.
-%% @end
-%% @doc Wrap the type data as either a type of literal.
-%% @end
-type_to_convert_data(Line, {literal, _, _} = Literal, _, _) ->
-    erl_parse:abstract(Literal, [{line, Line}]);
-type_to_convert_data(Line, {_, Type, TypeArgs}, _, _) when Type =:= atom orelse
-                                                           Type =:= binary orelse
-                                                           Type =:= bitstring orelse
-                                                           Type =:= boolean orelse
-                                                           Type =:= float orelse
-                                                           Type =:= integer orelse
-                                                           Type =:= list orelse
-                                                           Type =:= map orelse
-                                                           Type =:= nil orelse
-                                                           Type =:= number orelse
-                                                           Type =:= pid orelse
-                                                           Type =:= port orelse
-                                                           Type =:= range orelse
-                                                           Type =:= reference ->
-    erl_parse:abstract({type, Type, TypeArgs}, [{line, Line}]);
-type_to_convert_data(Line, {type, record, {Record, _Overrides}}, _, Records) ->
-    #{Record := RecordSpec} = Records,
-    {Arity, Fields, FieldTypes} = RecordSpec,
-    ArityMap = maps:from_list(lists:zip(Fields, lists:seq(2, Arity))),
-    FieldTuple = list_to_tuple([Record | FieldTypes]),
-    {tuple, Line, [
-        {atom, Line, type},
-        {atom, Line, record},
-        {tuple, Line, [
-            {atom, Line, Record},
-            {record, Line, Record, []},
-            {integer, Line, Arity},
-            erl_parse:abstract(ArityMap, [{line, Line}]),
-            erl_parse:abstract(FieldTuple, [{line, Line}])]}]};
-%% @doc special tuple types
-%% @end
-type_to_convert_data(Line, {type, tuple, TupleFieldTypes}, _, _) when TupleFieldTypes =:= any orelse
-                                                                      TupleFieldTypes =:= none ->
-    erl_parse:abstract({type, tuple, TupleFieldTypes}, [{line, Line}]);
-%% @doc if the type is a tuple we need to convert all fields.
-%%      if the type is a union we need to convert to any 1 field.
-%%      either way the logic to build out the types is the same.
-%% @end
-type_to_convert_data(Line, {type, Type, FieldTypes}, Types, Records) when Type =:= tuple orelse
-                                                                          Type =:= union ->
-    {tuple, Line,
-        [{atom, Line, type},
-         {atom, Line, Type},
-         erl_parse:abstract(lists:map(fun(Line0, FieldType) ->
-                                          type_to_convert_data(Line0, FieldType, Types, Records)
-                                      end,
-                                      FieldTypes),
-                            [{line, Line}])]};
-%% @doc the type is not a primitive, we need to examine it's components.
-%% @end
-type_to_convert_data(Line, {_, Type, _}, Types, Records) ->
-    #{Type := TypeSpec} = Types,
-    type_to_convert_data(Line, TypeSpec, Types, Records).
 
 %%=============================================================================
 %% parsing functions
@@ -740,12 +710,14 @@ try_parse_type(Type) ->
 %%======================================
 %% [] - nil()
 %%======================================
-%% @doc Expect :: {type, _, nil, []}
+%% @doc Expect :: {nil, _}
+%%              | {type, _, nil, []}
 %%              | {call, _, {atom, _, nil}, []}
-%%              | TODO: Fill In Literal
 %%
-%%      All cases can be handled by the default handler.
+%%      The type and call cases can be handled by the default handler.
 %% @end
+parse_type({nil, _}) ->
+    {literal, nil, []};
 %%======================================
 %% Atom
 %%======================================
@@ -863,7 +835,8 @@ parse_type({type, _, nonempty_list, [Type]}) ->
 %%======================================
 %% Map
 %%======================================
-%% @doc Expect :: {type, _, map, any}           %% Any Map
+%% @doc Expect :: {map, _, MapFields}           %% Literal
+%%              | {type, _, map, any}           %% Any Map
 %%              | {call, _, {atom, _, map}, []} %% Any Map
 %%              | {type, _, map, []}            %% Empty Map
 %%              | {type, _, map, MapFields}     %% Typed Map
@@ -872,8 +845,9 @@ parse_type({type, _, nonempty_list, [Type]}) ->
 %%                 | list({type, _, map_field_exact, Types})
 %%      
 %%      A call to map() is treated as any map.
-%%      TODO: Add literals
 %% @end
+parse_type({map, _, _} = Map) ->
+    {literal, map, erl_parse:normalise(Map)};
 parse_type({type, _, map, any}) ->
     {type, map, any};
 parse_type({call, _, {atom, _, map}, []}) ->
@@ -1040,7 +1014,7 @@ parse_type({type, Line, string, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({Class, Line, nonempty_string, []}) ->
+parse_type({type, Line, nonempty_string, []}) ->
     parse_type({type, Line, nonempty_list, [{type, Line, char, []}]});
 %%======================================
 %% iodata()
@@ -1348,11 +1322,11 @@ is_any({type, any, _}, _) ->
     true;
 is_any({type, union, UnionTypes}, Types) ->
     is_any(UnionTypes, Types);
-is_any([], _) ->
-    false;
 is_any([{type, any, _} | _], _) ->
     true;
 is_any([{type, union, InnerUnionTypes} | OuterUnionTypes], Types) ->
     is_any(InnerUnionTypes, Types) orelse is_any(OuterUnionTypes, Types);
 is_any([_ | UnionTypes], Types) ->
-    is_any(UnionTypes, Types).
+    is_any(UnionTypes, Types);
+is_any(_, _) ->
+    false.

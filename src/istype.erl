@@ -25,6 +25,66 @@
 -record(record_b, {f :: #record_a{e :: binary()},
                    g :: atom() | integer()}).
 
+-export_type([any_type/0,
+              none_type/0,
+              pid_type/0,
+              port_type/0,
+              reference_type/0,
+              nil_a_type/0,
+              nil_b_type/0,
+              atom_type/0,
+              erlang_atom_type/0,
+              empty_bitstring_type/0,
+              m_bitstring_type/0,
+              n_bitstring_type/0,
+              mn_bitstring_type/0,
+              float_type/0,
+              any_fun_type/0,
+              any_arity_fun_returning_type/0,
+              fun_returning_type/0,
+              typed_fun_type/0,
+              integer_type/0,
+              erlang_integer_type/0,
+              erlang_negative_integer_type/0,
+              range_type/0,
+              neg_range_type/0,
+              typed_list_type/0,
+              maybe_improper_list_type/0,
+              nonempty_improper_list_type/0,
+              nonempty_list_type/0,
+              any_map_type/0,
+              empty_map_type/0,
+              mandatory_map_type/0,
+              optional_map_type/0,
+              mixed_map_type/0,
+              any_tuple_type/0,
+              empty_tuple_type/0,
+              typed_tuple_type/0,
+              union_type/0,
+              term_type/0,
+              binary_type/0,
+              bitstring_type/0,
+              boolean_type/0,
+              byte_type/0,
+              char_type/0,
+              number_type/0,
+              list_type/0,
+              string_type/0,
+              nonempty_string_type/0,
+              module_type/0,
+              mfa_type/0,
+              arity_type/0,
+              identifier_type/0,
+              node_type/0,
+              timeout_type/0,
+              no_return_type/0,
+              non_neg_integer_type/0,
+              pos_integer_type/0,
+              neg_integer_type/0,
+              record_a_type/0,
+              typed_record_a_type/0,
+              record_b_type/0]).
+
 %%=============================================================================
 %% General test functions
 %%=============================================================================
@@ -48,8 +108,8 @@ assert_test() ->
 
 invocation_test() ->
     TestAtom = return_value(atom),
-    TestRecord = #record0{},
-    true = istype(TestRecord#record0.a, atom()),
+    TestRecord = #record_a{},
+    true = istype(TestRecord#record_a.a, atom()),
     true = istype(atom, atom()),
     true = istype(TestAtom, atom()),
     true = istype(fun() -> atom end(), atom()),
@@ -68,7 +128,7 @@ guard_test() ->
 
     Record1 = return_value(#record_a{}),
     true = case Record1 of
-               X1 when istype(X1, #record_a{e = atom()}) -> true
+               X1 when istype(X1, #record_a{}) -> true
            end,
 
     true = fun(X2) when istype(X2, atom()) -> true;
@@ -109,11 +169,11 @@ none_validation_test() ->
     false = istype(return_value("list"), none()).
 
 none_conversion_test() ->
-    ok = ?convert_error(atom, none()),
-    ok = ?convert_error(<<"binary">>, none()),
-    ok = ?convert_error(1.0, none()),
-    ok = ?convert_error(1, none()),
-    ok = ?convert_error("list", none()).
+    ok = ?convert_error(return_value(atom), none()),
+    ok = ?convert_error(return_value(<<"binary">>), none()),
+    ok = ?convert_error(return_value(1.0), none()),
+    ok = ?convert_error(return_value(1), none()),
+    ok = ?convert_error(return_value("list"), none()).
 
 %%=====================================
 %% pid()
@@ -424,8 +484,11 @@ any_map_conversion_test() ->
     #{a := b,
       b := c} = totype(#{a => b, b => c}, map()),
 
-    #{a := undefined,
-      b := undefined} = totype(#record1{}, map()),
+    #{a := atom,
+      b := atom,
+      c := undefined,
+      d := undefined,
+      e := undefined} = totype(#record_a{}, map()),
 
     ok = ?convert_error(atom, map()).
 
@@ -619,8 +682,9 @@ number_conversion_test() ->
 %%=====================================
 %% @doc list() :: [any()]
 %% @end
--type list_type() -> list().
+-type list_type() :: list().
 list_validation_test() ->
+    ok.
 
 %%=====================================
 %% maybe_improper_list()
@@ -888,10 +952,10 @@ timeout_conversion_test() ->
 %% @end
 -type no_return_type() :: no_return().
 no_return_validation_test() ->
-    false = istype(return_value(atom), no_return()).
-    false = istype(return_value(<<"binary">>), no_return()).
-    false = istype(return_value(1.0), no_return()).
-    false = istype(return_value(1), no_return()).
+    false = istype(return_value(atom), no_return()),
+    false = istype(return_value(<<"binary">>), no_return()),
+    false = istype(return_value(1.0), no_return()),
+    false = istype(return_value(1), no_return()),
     false = istype(return_value("list"), no_return()).
 
 no_return_conversion_test() ->
