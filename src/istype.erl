@@ -5,14 +5,17 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(convert_error(Value, Type), try
-                                        totype(Value, Type)
-                                    catch
-                                        error:{istype_conversion, _, _} ->
-                                            ok;
-                                        _:_ ->
-                                            wrong_error
-                                    end).
+-define(CONVERT_ERROR(Value, Type), fun() ->
+                                        try
+                                            totype(Value, Type)
+                                        catch
+                                            error:{istype_conversion, _, _, _} ->
+                                                ok;
+                                            Err:Or ->
+                                                io:format("Error: ~p ~p\n~p\n", [Err, Or, erlang:get_stacktrace()]),
+                                                wrong_error
+                                        end
+                                    end()).
 
 %%=============================================================================
 %% Test records
@@ -169,11 +172,11 @@ none_validation_test() ->
     false = istype(return_value("list"), none()).
 
 none_conversion_test() ->
-    ok = ?convert_error(return_value(atom), none()),
-    ok = ?convert_error(return_value(<<"binary">>), none()),
-    ok = ?convert_error(return_value(1.0), none()),
-    ok = ?convert_error(return_value(1), none()),
-    ok = ?convert_error(return_value("list"), none()).
+    ok = ?CONVERT_ERROR(return_value(atom), none()),
+    ok = ?CONVERT_ERROR(return_value(<<"binary">>), none()),
+    ok = ?CONVERT_ERROR(return_value(1.0), none()),
+    ok = ?CONVERT_ERROR(return_value(1), none()),
+    ok = ?CONVERT_ERROR(return_value("list"), none()).
 
 %%=====================================
 %% pid()
@@ -193,7 +196,7 @@ pid_conversion_test() ->
     Self = totype(ListSelf, pid()),
     Self = totype(Self, pid()),
 
-    ok = ?convert_error(atom, pid()).
+    ok = ?CONVERT_ERROR(atom, pid()).
 
 %%=====================================
 %% port()
@@ -214,7 +217,7 @@ port_conversion_test() ->
     Port = totype(ListPort, port()),
     Port = totype(Port, port()),
 
-    ok = ?convert_error(atom, port()),
+    ok = ?CONVERT_ERROR(atom, port()),
 
     true = port_close(Port).
 
@@ -224,7 +227,7 @@ port_conversion_test() ->
 -type reference_type() :: reference().
 reference_validation_test() ->
     Ref = make_ref(),
-    
+
     false = istype(return_value(atom), reference()),
     true = istype(return_value(Ref), reference()).
 
@@ -256,9 +259,9 @@ nil_conversion_test() ->
     [] = totype([], nil()),
     [] = totype([], nil_a_type()),
 
-    ok = ?convert_error(atom, []),
-    ok = ?convert_error(atom, nil()),
-    ok = ?convert_error(atom, nil_a_type()).
+    ok = ?CONVERT_ERROR(atom, []),
+    ok = ?CONVERT_ERROR(atom, nil()),
+    ok = ?CONVERT_ERROR(atom, nil_a_type()).
 
 %%=====================================
 %% Atom
@@ -277,7 +280,7 @@ atom_conversion_test() ->
     atom = totype(atom, atom()),
     atom = totype(<<"atom">>, atom()),
     atom = totype("atom", atom()),
-    ok = ?convert_error(1, atom()).
+    ok = ?CONVERT_ERROR(1, atom()).
 
 -type erlang_atom_type() :: atom.
 erlang_atom_validation_test() ->
@@ -287,7 +290,7 @@ erlang_atom_validation_test() ->
 
 erlang_atom_conversion_test() ->
     atom = totype(<<"atom">>, atom),
-    ok = ?convert_error("undefined", atom).    
+    ok = ?CONVERT_ERROR("undefined", atom).
 
 %%=====================================
 %% Bitstring
@@ -333,7 +336,7 @@ float_conversion_test() ->
     -1.0 = totype("-1.0", float()),
     -1.0 = totype("-1.00000000e+00", float()),
 
-    ok = ?convert_error(atom, float()).
+    ok = ?CONVERT_ERROR(atom, float()).
 
 %%=====================================
 %% Fun
@@ -355,7 +358,7 @@ float_conversion_test() ->
 %% Integer
 %%=====================================
 %% @doc Integer :: integer()
-%%               | Erlang_Integer                 
+%%               | Erlang_Integer
 %%               | Erlang_Integer..Erlang_Integer %% range()
 %%
 %%      Erlang_Integer :: ..., -1, 0, 1, ..., 42, ...
@@ -376,14 +379,14 @@ integer_conversion_test() ->
     1 = totype(<<"1">>, integer()),
     1 = totype(<<"1.0">>, integer()),
     1 = totype(<<"1.00000000e+00">>, integer()),
-    
+
     1 = totype("1", integer()),
     1 = totype("1.0", integer()),
     1 = totype("1.00000000e+00", integer()),
 
     -1 = totype(<<"-1">>, integer()),
 
-    ok = ?convert_error(atom, integer()).
+    ok = ?CONVERT_ERROR(atom, integer()).
 
 %%=================
 %% Erlang_Integer
@@ -403,7 +406,7 @@ erlang_integer_conversion_test() ->
     1 = totype(<<"1">>, 1),
     1 = totype(<<"1.0">>, 1),
     1 = totype(<<"1.00000000e+00">>, 1),
-    
+
     1 = totype("1", 1),
     1 = totype("1.0", 1),
     1 = totype("1.00000000e+00", 1),
@@ -411,7 +414,7 @@ erlang_integer_conversion_test() ->
     -1 = totype(<<"-1">>, -1),
     -1 = totype("-1", -1),
 
-    ok = ?convert_error(atom, 1).
+    ok = ?CONVERT_ERROR(atom, 1).
 
 %%================
 %% Erlang_Integer..Erlang_Integer
@@ -435,13 +438,13 @@ range_conversion_test() ->
     1 = totype(1, range_type()),
     1 = totype("1", range_type()),
 
-    ok = ?convert_error(atom, range_type()).
+    ok = ?CONVERT_ERROR(atom, range_type()).
 
 %%=====================================
 %% List
 %%=====================================
 %% @doc List :: list(Type)
-%%            | maybe_improper_list(Type1, Type2)               
+%%            | maybe_improper_list(Type1, Type2)
 %%            | nonempty_improper_list(Type1, Type2)
 %%            | nonempty_list(Type)
 %%
@@ -455,7 +458,7 @@ range_conversion_test() ->
 %% Map
 %%=====================================
 %% @doc Map :: map() %% Any map
-%%           | #{}   %% Empty map            
+%%           | #{}   %% Empty map
 %%           | #{PairList}
 %%
 %%      PairList :: Pair
@@ -474,7 +477,7 @@ range_conversion_test() ->
 any_map_validation_test() ->
     false = istype(return_value(atom), map()),
     true = istype(return_value(#{}), map()).
-    
+
 any_map_conversion_test() ->
     #{} = totype([], map()),
     #{} = totype(#{}, map()),
@@ -490,16 +493,16 @@ any_map_conversion_test() ->
       d := undefined,
       e := undefined} = totype(#record_a{}, map()),
 
-    ok = ?convert_error(atom, map()).
+    ok = ?CONVERT_ERROR(atom, map()).
 
 empty_map_validation_test() ->
     false = istype(return_value(atom), #{}),
     true = istype(return_value(#{}), #{}).
-    
+
 empty_map_conversion_test() ->
     %% TODO: Fix Me
-    %% #{} = totype([], #{}),
-    %% #{} = totype(#{}, #{}),
+    %%#{} = totype([], #{}),
+    %%#{} = totype(#{}, #{}),
 
     %% #{a := b,
     %%   b := c} = totype([{a, b}, {b, c}], #{}),
@@ -510,7 +513,7 @@ empty_map_conversion_test() ->
     %% #{a := undefined,
     %%   b := undefined} = totype(#record1{}, #{}),
 
-    ok = ?convert_error(atom, #{}).
+    ok = ?CONVERT_ERROR(atom, #{}).
 
 %%=====================================
 %% Tuple
@@ -518,7 +521,7 @@ empty_map_conversion_test() ->
 %% @doc Tuple :: tuple() %% Any tuple
 %%             | {}      %% Empty tuple
 %%             | {TList}
-%%      
+%%
 %%      TList :: Type
 %%             | Type, TList
 %% @end
@@ -529,7 +532,7 @@ empty_map_conversion_test() ->
 %%=====================================
 %% Union
 %%=====================================
-%% @doc Union :: Type1 | Type2      
+%% @doc Union :: Type1 | Type2
 %% @end
 -type union_type() :: atom() | integer().
 
@@ -569,7 +572,7 @@ binary_validation_test() ->
     false = istype(return_value(atom), binary()),
     true = istype(return_value(<<"binary">>), binary()).
 
-binary_converstion_test() ->
+binary_conversion_test() ->
     <<"binary">> = totype(binary, binary()),
     <<"binary">> = totype(<<"binary">>, binary()),
     <<"1.00000000000000000000e+00">> = totype(1.0, binary()),
@@ -630,8 +633,8 @@ byte_validation_test() ->
 
 byte_conversion_test() ->
     0 = totype(0, byte()),
-    ok = ?convert_error(atom, byte()),
-    ok = ?convert_error(-1, byte()).
+    ok = ?CONVERT_ERROR(atom, byte()),
+    ok = ?CONVERT_ERROR(-1, byte()).
 
 %%=====================================
 %% char()
@@ -647,8 +650,8 @@ char_validation_test() ->
 
 char_conversion_test() ->
     0 = totype(0, char()),
-    ok = ?convert_error(atom, char()),
-    ok = ?convert_error(-1, char()).
+    ok = ?CONVERT_ERROR(atom, char()),
+    ok = ?CONVERT_ERROR(-1, char()).
 
 %%=====================================
 %% nil()
@@ -675,7 +678,7 @@ number_conversion_test() ->
     1 = totype(1, number()),
     1 = totype("1", number()),
 
-    ok = ?convert_error(atom, number()).
+    ok = ?CONVERT_ERROR(atom, number()).
 
 %%=====================================
 %% list()
@@ -728,7 +731,7 @@ string_conversion_test() ->
     Self = self(),
     ListSelf = pid_to_list(Self),
     ListSelf = totype(Self, string()),
-    
+
     Port = open_port({spawn, "tar -xzf -"}, [exit_status, binary]),
     ListPort = port_to_list(Port),
     ListPort = totype(Port, string()),
@@ -738,7 +741,7 @@ string_conversion_test() ->
     ListRef = ref_to_list(Ref),
     ListRef = totype(Ref, string()),
 
-    ok = ?convert_error([-1], string()).
+    ok = ?CONVERT_ERROR([-1], string()).
 
 %%=====================================
 %% nonempty_string()
@@ -766,7 +769,7 @@ nonempty_string_conversion_test() ->
     Self = self(),
     ListSelf = pid_to_list(Self),
     ListSelf = totype(Self, nonempty_string()),
-    
+
     Port = open_port({spawn, "tar -xzf -"}, [exit_status, binary]),
     ListPort = port_to_list(Port),
     ListPort = totype(Port, nonempty_string()),
@@ -776,9 +779,9 @@ nonempty_string_conversion_test() ->
     ListRef = ref_to_list(Ref),
     ListRef = totype(Ref, nonempty_string()),
 
-    ok = ?convert_error([-1], nonempty_string()),
-    ok = ?convert_error("", nonempty_string()),
-    ok = ?convert_error([], nonempty_string()).
+    ok = ?CONVERT_ERROR([-1], nonempty_string()),
+    ok = ?CONVERT_ERROR("", nonempty_string()),
+    ok = ?CONVERT_ERROR([], nonempty_string()).
 
 %%=====================================
 %% iodata()
@@ -814,7 +817,7 @@ module_conversion_test() ->
     atom = totype(atom, module()),
     atom = totype(<<"atom">>, module()),
     atom = totype("atom", module()),
-    ok = ?convert_error(1, module()).
+    ok = ?CONVERT_ERROR(1, module()).
 
 %%=====================================
 %% mfa()
@@ -836,7 +839,7 @@ mfa_conversion_test() ->
     {atom, atom, 0} = totype({"atom", "atom", "0"}, mfa()),
     {atom, atom, 0} = totype(["atom", "atom", "0"], mfa()),
 
-    ok = ?convert_error(atom, mfa()).
+    ok = ?CONVERT_ERROR(atom, mfa()).
 
 %%=====================================
 %% arity()
@@ -852,8 +855,8 @@ arity_validation_test() ->
 
 arity_conversion_test() ->
     0 = totype(0, arity()),
-    ok = ?convert_error(atom, arity()),
-    ok = ?convert_error(-1, arity()).
+    ok = ?CONVERT_ERROR(atom, arity()),
+    ok = ?CONVERT_ERROR(-1, arity()).
 
 %%=====================================
 %% identifier()
@@ -871,7 +874,7 @@ identifier_validation_test() ->
 
     false = istype(return_value(atom), identifier()),
     true = istype(return_value(Port), identifier()),
-        
+
     false = istype(return_value(atom), identifier()),
     true = istype(return_value(Ref), identifier()),
 
@@ -900,7 +903,7 @@ identifier_conversion_test() ->
     Ref = totype(ListRef, identifier()),
     Ref = totype(Ref, identifier()),
 
-    ok = ?convert_error(atom, identifier()),
+    ok = ?CONVERT_ERROR(atom, identifier()),
     true = port_close(Port).
 
 %%=====================================
@@ -917,7 +920,7 @@ node_conversion_test() ->
     atom = totype(atom, node()),
     atom = totype(<<"atom">>, node()),
     atom = totype("atom", node()),
-    ok = ?convert_error(1, node()).
+    ok = ?CONVERT_ERROR(1, node()).
 
 %%=====================================
 %% timeout()
@@ -936,14 +939,14 @@ timeout_conversion_test() ->
     infinity = totype(infinity, timeout()),
     infinity = totype(<<"infinity">>, timeout()),
     infinity = totype("infinity", timeout()),
-    
+
     0 = totype(<<"0">>, timeout()),
     0 = totype(0.0, timeout()),
     0 = totype(0, timeout()),
     0 = totype("0", timeout()),
 
-    ok = ?convert_error(atom, timeout()),
-    ok = ?convert_error(-1, timeout()).
+    ok = ?CONVERT_ERROR(atom, timeout()),
+    ok = ?CONVERT_ERROR(-1, timeout()).
 
 %%=====================================
 %% no_return()
@@ -959,11 +962,11 @@ no_return_validation_test() ->
     false = istype(return_value("list"), no_return()).
 
 no_return_conversion_test() ->
-    ok = ?convert_error(atom, no_return()),
-    ok = ?convert_error(<<"binary">>, no_return()),
-    ok = ?convert_error(1.0, no_return()),
-    ok = ?convert_error(1, no_return()),
-    ok = ?convert_error("list", no_return()).
+    ok = ?CONVERT_ERROR(atom, no_return()),
+    ok = ?CONVERT_ERROR(<<"binary">>, no_return()),
+    ok = ?CONVERT_ERROR(1.0, no_return()),
+    ok = ?CONVERT_ERROR(1, no_return()),
+    ok = ?CONVERT_ERROR("list", no_return()).
 
 %%=====================================
 %% non_neg_integer()
@@ -984,8 +987,8 @@ non_neg_integer_conversion_test() ->
     0 = totype("0.0", non_neg_integer()),
     0 = totype("0", non_neg_integer()),
 
-    ok = ?convert_error(atom, non_neg_integer()),
-    ok = ?convert_error(-1, non_neg_integer()).
+    ok = ?CONVERT_ERROR(atom, non_neg_integer()),
+    ok = ?CONVERT_ERROR(-1, non_neg_integer()).
 
 %%=====================================
 %% pos_integer()
@@ -1006,8 +1009,8 @@ pos_integer_conversion_test() ->
     1 = totype("1.0", pos_integer()),
     1 = totype("1", pos_integer()),
 
-    ok = ?convert_error(atom, pos_integer()),
-    ok = ?convert_error(0, pos_integer()).
+    ok = ?CONVERT_ERROR(atom, pos_integer()),
+    ok = ?CONVERT_ERROR(0, pos_integer()).
 
 %%=====================================
 %% neg_integer()
@@ -1028,8 +1031,8 @@ neg_integer_conversion_test() ->
     -1 = totype("-1.0", neg_integer()),
     -1 = totype("-1", neg_integer()),
 
-    ok = ?convert_error(atom, neg_integer()),
-    ok = ?convert_error(0, neg_integer()).
+    ok = ?CONVERT_ERROR(atom, neg_integer()),
+    ok = ?CONVERT_ERROR(0, neg_integer()).
 
 %%=====================================
 %% nonempty_maybe_improper_list()
