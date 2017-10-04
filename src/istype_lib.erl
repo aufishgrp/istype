@@ -1,48 +1,419 @@
 -module(istype_lib).
--export([totype/4, istype/4]).
+-export([istype/2, istype/4, totype/2, totype/4]).
 
 %%==============================================================================
 %% istype functions
 %%==============================================================================
 %% istype
 %%==========================================================
-istype(_, _, _, _) ->
-    true.
+istype(Value, Type) ->
+    istype(Value, Type, #{}, #{}).
+
+istype(Value, Type, Types, Records) ->
+    do_istype(Value, Type, Types, Records).
+%%==========================================================
+%% do_istype
+%%==========================================================
+%% @doc Validates the given value is the given type.
+%% @end
+%%======================================
+%% ShortHand
+%%======================================
+do_istype(Value, Type, Types, Records) when is_atom(Type) ->
+    shorthand(Value, Type, Types, Records, fun do_istype/4);
+%%======================================
+%% Literals
+%%======================================
+do_istype(Value, {literal, _, Literal}, _, _) ->
+    Value =:= Literal;
+%%======================================
+%% any()
+%%======================================
+do_istype(_, {type, any, []}, _, _) ->
+    true;
+%%======================================
+%% none()
+%%======================================
+do_istype(_, {type, none, []}, _, _) ->
+    false;
+%%======================================
+%% pid()
+%%======================================
+do_istype(Value, {type, pid, []}, _, _) ->
+    is_pid(Value);
+%%======================================
+%% port()
+%%======================================
+do_istype(Value, {type, port, []}, _, _) ->
+    is_port(Value);
+%%======================================
+%% reference()
+%%======================================
+do_istype(Value, {type, reference, []}, _, _) ->
+    is_reference(Value);
+%%======================================
+%% [] - nil()
+%%======================================
+do_istype(Value, {type, nil, []}, _, _) ->
+    Value =:= [];
+%%======================================
+%% Atom
+%%======================================
+%% atom()
+%%==================
+do_istype(Value, {type, atom, []}, _, _) ->
+    is_atom(Value);
+%%==================
+%% Erlang_Atom
+%%==================
+%% @doc Handled by literal handler
+%% @end
+%%======================================
+%% Bitstring
+%%======================================
+%% @doc Handled by literal handler
+%% @end
+%%======================================
+%% float()
+%%======================================
+do_istype(Value, {type, float, []}, _, _) ->
+    is_float(Value);
+%%======================================
+%% Fun
+%%======================================
+do_istype(Value, {type, 'fun', []}, _, _) ->
+    is_function(Value);
+%%======================================
+%% Integer
+%%======================================
+%% integer()
+%%==================
+do_istype(Value, {type, integer, []}, _, _) ->
+    is_integer(Value);
+%%==================
+%% Erlang_Integer
+%%==================
+%% @doc Handled by the default handler
+%% @end
+%%==================
+%% Erlang_Integer..Erlang_Integer
+%%==================
+do_istype(Value, {type, range, {LowerBound, UpperBound}}, _, _) when is_integer(Value) ->
+    case Value of
+        _ when LowerBound =:= undefined andalso Value =< UpperBound ->
+            true;
+        _ when UpperBound =:= undefined andalso Value >= LowerBound ->
+            true;
+        _ when Value >= LowerBound andalso Value =< UpperBound ->
+            true;
+        _ ->
+            false
+    end;
+%%======================================
+%% List
+%%======================================
+do_istype(Value, {type, list, any}, _, _) ->
+    is_list(Value);
+do_istype(Value, {type, list, TypeSpec}, Types, Records) when is_list(Value) ->
+    {Empty, ValueType, TerminatorType} = TypeSpec,
+    do_istype_list(Value, Empty, ValueType, TerminatorType, Types, Records);
+%%======================================
+%% Map
+%%======================================
+do_istype(Value, {type, map, any}, _, _) ->
+    is_map(Value);
+do_istype(Value, {type, map, _} = Type, Types, Records) when is_map(Value) ->
+    do_istype_map(Value, Type, Types, Records);
+%%======================================
+%% Tuple
+%%======================================
+do_istype(Value, {type, tuple, any}, _, _) ->
+    is_tuple(Value);
+do_istype(Value, {type, tuple, empty}, _, _) ->
+    Value =:= {};
+do_istype(Value, {type, tuple, _} = Type, Types, Records) when is_tuple(Value) ->
+    do_istype_tuple(Value, Type, Types, Records);
+%%======================================
+%% Union
+%%======================================
+do_istype(_, {type, union, []}, _, _) ->
+    false;
+do_istype(Value, {type, union, [Type | UnionTypes]}, Types, Records) ->
+    case do_istype(Value, Type, Types, Records) of
+        true ->
+            true;
+        false ->
+            do_istype(Value, {type, union, UnionTypes}, Types, Records)
+    end;
+%%======================================
+%% term()
+%%======================================
+%% @doc Converted to any() during parse.
+%% @end
+%%======================================
+%% binary()
+%%======================================
+do_istype(Value, {type, binary, []}, _, _) ->
+    is_binary(Value);
+%%======================================
+%% bitstring()
+%%======================================
+do_istype(Value, {type, bitstring, []}, _, _) ->
+    is_bitstring(Value);
+%%======================================
+%% boolean()
+%%======================================
+do_istype(Value, {type, boolean, []}, _, _) ->
+    is_boolean(Value);
+%%======================================
+%% byte()
+%%======================================
+%% @doc Converted to range() during parse.
+%%======================================
+%% char()
+%% @end
+%%======================================
+%% @doc Converted to range() during parse.
+%% @end
+%%======================================
+%% nil()
+%%======================================
+%% @doc Handled by []
+%% @end
+%%======================================
+%% list()
+%%======================================
+%% @doc Handled by List
+%% @end
+%%======================================
+%% maybe_improper_list()
+%%======================================
+%% @doc Handled by List
+%% @end
+%%======================================
+%% nonempty_list()
+%%======================================
+%% @doc Handled by List
+%% @end
+%%======================================
+%% string()
+%%======================================
+%% @doc Handled by List
+%% @end
+%%======================================
+%% nonempty_string()
+%%======================================
+%% @doc Handled by List
+%% @end
+%%======================================
+%% iodata()
+%%======================================
+%% @doc Handled by Union
+%% @end
+%%======================================
+%% iolist()
+%%======================================
+%% @doc Handled by List
+%% @end
+%%======================================
+%% function()
+%%======================================
+%% @doc Handled by Fun
+%% @end
+%%======================================
+%% module()
+%%======================================
+%% @doc Handled by atom()
+%% @end
+%%======================================
+%% mfa()
+%%======================================
+%% @doc Handled by Union
+%% @end
+%%======================================
+%% arity()
+%%======================================
+%% @doc Handled by range()
+%% @end
+%%======================================
+%% identifier()
+%%======================================
+%% @doc Handled by Union
+%% @end
+%%======================================
+%% node()
+%%======================================
+%% @doc Handled by atom()
+%% @end
+%%======================================
+%% timeout()
+%%======================================
+%% @doc Handled by Union
+%% @end
+%%======================================
+%% no_return()
+%%======================================
+%% @doc Handled by none()
+%% @end
+%%======================================
+%% non_neg_integer()
+%%======================================
+%% @doc Handled by range()
+%% @end
+%%======================================
+%% pos_integer()
+%%======================================
+%% @doc Handled by range()
+%% @end
+%%======================================
+%% neg_integer()
+%%======================================
+%% @doc Handled by range()
+%% @end
+%%======================================
+%% nonempty_maybe_improper_list()
+%%======================================
+%% @doc Handled by List
+%% @end
+%%======================================
+%% nonempty_improper_list()
+%%======================================
+%% @doc Handled by List
+%% @end
+%%======================================
+%% nonempty_maybe_improper_list(Type1, Type2)
+%%======================================
+%% @doc Handled by List
+%% @end
+%%======================================
+%% Record
+%%======================================
+
+%%======================================
+%% Custom
+%%======================================
+%% @doc Handled by List
+%% @end
+do_istype(Value, {type, TypeName, []}, Types, Records) ->
+    #{TypeName := Type} = Types,
+    do_istype(Value, Type, Types, Records);
+
+%%======================================
+%% Default handler
+%%======================================
+do_istype(_, _, _, _) ->
+    false.
+
+%%==========================================================
+%% do_istype_list()
+%%==========================================================
+do_istype_list([], nonempty, _, _, _, _) ->
+    false;
+do_istype_list([], maybe_empty, _, _, _, _) ->
+    true;
+do_istype_list([Value | []], _, ValueType, TerminatorType, Types, Records) ->
+    do_istype(Value, ValueType, Types, Records) andalso
+    do_istype([], TerminatorType, Types, Records);
+do_istype_list([Value | Values], Empty, ValueType, TerminatorType, Types, Records) when is_list(Values) ->
+    do_istype(Value, ValueType, Types, Records) andalso
+    do_istype_list(Values, Empty, ValueType, TerminatorType, Types, Records);
+do_istype_list([Value | Terminator], _, ValueType, TerminatorType, Types, Records) ->
+    do_istype(Value, ValueType, Types, Records) andalso
+    do_istype(Terminator, TerminatorType, Types, Records).
+
+
+%%==========================================================
+%% do_istype_map()
+%%==========================================================
+do_istype_map(Value, {type, map, MapFields}, Types, Records) ->
+    %% Get the field types that are required
+    Required0 = map_fields_required(MapFields),
+
+    %% Generate a new map of converted types while reducing the set of required fields.
+    Results = maps:fold(fun(K0, V0, {RequiredAcc, true}) ->
+                               {Result, Assoc} = do_istype_map_assoc(K0, V0, MapFields, Types, Records),
+                               {RequiredAcc -- [Assoc], Result};
+                           (_, _, False) ->
+                               False
+                        end,
+                        {Required0, true},
+                        Value),
+
+    case Results of
+        {[], true} ->
+            true;
+        _ ->
+            false
+    end.
+
+do_istype_map_assoc(_, _, [], _, _) ->
+    false;
+do_istype_map_assoc(Key, Value, [AssocType | AssocTypes], Types, Records) ->
+    {KeyType, ValueType} = AssocType,
+    Result = do_istype(Key, KeyType, Types, Records) andalso
+             do_istype(Value, ValueType, Types, Records),
+    case Result of
+        true ->
+            true;
+        false ->
+            do_istype_map_assoc(Key, Value, AssocTypes, Types, Records)
+    end.
+
+%%==========================================================
+%% do_istype_tuple()
+%%==========================================================
+do_istype_tuple(Value, {type, tuple, TupleTypes}, Types, Records) ->
+    case length(TupleTypes) of
+        X when X =:= size(Value) ->
+            do_istype_tuple(Value, TupleTypes, Types, Records, true, 1);
+        _ ->
+            false
+    end.
+
+do_istype_tuple(_, _, _, _, false, _) ->
+    false;
+do_istype_tuple(_, [], _, _, _, _) ->
+    false;
+do_istype_tuple(Value, [TupleType | TupleTypes], Types, Records, _, Index) ->
+    do_istype_tuple(Value,
+                    TupleTypes,
+                    Types,
+                    Records,
+                    do_istype(element(Index, Value), TupleType, Types, Records),
+                    Index + 1).
 
 %%==============================================================================
 %% totype functions
 %%==============================================================================
-%% totype
+%% totype()
 %%==========================================================
+totype(Value, Type) ->
+    totype(Value, Type, #{}, #{}).
+
 totype(Value, Type, Types, Records) ->
-    io:format("Convert ~p\nTo ~p\n", [Value, Type]),
-    try
+   try
         do_totype(Value, Type, Types, Records)
     catch
         Class:Error ->
             Reason = {Class, Error},
             conversion_error(Value, Type, Reason)
     end.
+
 %%==========================================================
-%% do_totype
+%% do_totype()
 %%==========================================================
 %% @doc Converts the given value to the given type.
 %% @end
 %%======================================
-%% Internal Shorthand
+%% ShortHand
 %%======================================
-do_totype(Value, list, Types, Records) ->
-    do_totype(Value,
-           {type, list, [maybe_empty,
-                         {type, any, []},
-                         {type, any, []}]},
-           Types,
-           Records);
-do_totype(Value, map, Types, Records) ->
-    do_totype(Value, {type, map, any}, Types, Records);
 do_totype(Value, Type, Types, Records) when is_atom(Type) ->
-    io:format("Shorthand ~p\n", [Type]),
-    do_totype(Value, {type, Type, []}, Types, Records);
+    shorthand(Value, Type, Types, Records, fun do_totype/4);
+%%======================================
+%% Literals
+%%======================================
+do_totype(Value, {literal, _, _} = Literal, Types, Records) ->
+    do_totype_literal(Value, Literal, Types, Records);
 %%======================================
 %% any()
 %%======================================
@@ -107,13 +478,8 @@ do_totype(Value, {type, atom, []}, _, _) when is_list(Value) ->
 %%==================
 %% Erlang_Atom
 %%==================
-do_totype(Value, {literal, atom, Atom}, Types, Records) ->
-    case do_totype(Value, atom, Types, Records) of
-        Atom ->
-            Atom;
-        _ ->
-            conversion_error(Value, {literal, atom, Atom})
-    end;
+%% @doc Handled by the literal handler
+%% @end
 %%======================================
 %% Bitstring
 %%======================================
@@ -126,7 +492,7 @@ do_totype(Value, {type, float, []}, _, _) when is_float(Value) ->
     Value;
 do_totype(Value, {type, float, []}, _, _) when is_integer(Value) ->
     1.0 * Value;
-do_totype(Value, {type, float, []}, Types, Records) when is_binary(Value) orelse 
+do_totype(Value, {type, float, []}, Types, Records) when is_binary(Value) orelse
                                                          is_list(Value) ->
     AsNumber = do_totype(Value, number, Types, Records),
     do_totype(AsNumber, float, Types, Records);
@@ -145,20 +511,15 @@ do_totype(Value, {type, integer, []}, _, _) when is_float(Value) ->
     trunc(Value);
 do_totype(Value, {type, integer, []}, _, _) when is_integer(Value) ->
     Value;
-do_totype(Value, {type, integer, []}, Types, Records) when is_binary(Value) orelse 
+do_totype(Value, {type, integer, []}, Types, Records) when is_binary(Value) orelse
                                                            is_list(Value) ->
     AsNumber = do_totype(Value, number, Types, Records),
     do_totype(AsNumber, integer, Types, Records);
 %%==================
 %% Erlang_Integer
 %%==================
-do_totype(Value, {literal, integer, Integer}, Types, Records) ->
-    case do_totype(Value, integer, Types, Records) of
-        Integer ->
-            Integer;
-        _ ->
-            conversion_error(Value, {literal, integer, Integer})
-    end;
+%% @doc Handled by the literal handler
+%% @end
 %%==================
 %% Erlang_Integer..Erlang_Integer
 %%==================
@@ -180,27 +541,29 @@ do_totype(Value, {type, range, {LowerBound, UpperBound}} = Type, Types, Records)
 %%======================================
 %% List
 %%======================================
-do_totype(Value, {type, list, [maybe_empty, {type, any, []}, {type, any, []}]}, _, _) when is_list(Value) ->
+do_totype(Value, {type, list, any}, _, _) when is_list(Value) ->
     Value;
-do_totype(Value, {type, list, [maybe_empty, {type, any, []}, {type, any, []}]}, _, _) when is_pid(Value) ->
+do_totype(Value, {type, list, any}, _, _) when is_pid(Value) ->
     pid_to_list(Value);
-do_totype(Value, {type, list, [maybe_empty, {type, any, []}, {type, any, []}]}, _, _) when is_port(Value) ->
+do_totype(Value, {type, list, any}, _, _) when is_port(Value) ->
     port_to_list(Value);
-do_totype(Value, {type, list, [maybe_empty, {type, any, []}, {type, any, []}]}, _, _) when is_reference(Value) ->
+do_totype(Value, {type, list, any}, _, _) when is_reference(Value) ->
     ref_to_list(Value);
-do_totype(Value, {type, list, [maybe_empty, {type, any, []}, {type, any, []}]}, _, _) when is_atom(Value) ->
+do_totype(Value, {type, list, any}, _, _) when is_atom(Value) ->
     atom_to_list(Value);
-do_totype(Value, {type, list, [maybe_empty, {type, any, []}, {type, any, []}]}, _, _) when is_bitstring(Value) ->
+do_totype(Value, {type, list, any}, _, _) when is_bitstring(Value) ->
     bitstring_to_list(Value);
-do_totype(Value, {type, list, [maybe_empty, {type, any, []}, {type, any, []}]}, _, _) when is_binary(Value) ->
+do_totype(Value, {type, list, any}, _, _) when is_binary(Value) ->
     binary_to_list(Value);
-do_totype(Value, {type, list, [maybe_empty, {type, any, []}, {type, any, []}]}, _, _) when is_float(Value) ->
-    float_to_list(Value);
-do_totype(Value, {type, list, [maybe_empty, {type, any, []}, {type, any, []}]}, _, _) when is_integer(Value) ->
+do_totype(Value, {type, list, any}, _, _) when is_float(Value) ->
+    float_to_list(Value, [{decimals, 20}, compact]);
+do_totype(Value, {type, list, any}, _, _) when is_integer(Value) ->
     integer_to_list(Value);
-do_totype(Value, {type, list, [maybe_empty, {type, any, []}, {type, any, []}]}, _, _) when is_map(Value) ->
+do_totype(Value, {type, list, any}, _, _) when is_map(Value) ->
     maps:to_list(Value);
-do_totype(Value, {type, list, [maybe_empty, {type, any, []}, {type, any, []}]}, Types, Records) when is_tuple(Value) ->
+do_totype(Value, {type, list, any}, _, _) when is_function(Value) ->
+    erlang:fun_to_list(Value);
+do_totype(Value, {type, list, any}, Types, Records) when is_tuple(Value) ->
     case maps:get(element(1, Value), Records, undefined) of
         {Arity, Fields, _} when size(Value) =:= Arity ->
             AsRecord = do_totype(Value, {record, element(1, Value), []}, Types, Records),
@@ -208,15 +571,14 @@ do_totype(Value, {type, list, [maybe_empty, {type, any, []}, {type, any, []}]}, 
         _ ->
             tuple_to_list(Value)
     end;
-do_totype(Value, {type, list, [Empty, ValueType, TerminatorType]} = Type, Types, Records) when is_list(Value) ->
+do_totype(Value, {type, list, {Empty, ValueType, TerminatorType}} = Type, Types, Records) ->
     try
-        do_totype_list(Value, Empty, ValueType, TerminatorType, Types, Records)
+        AsList = do_totype(Value, list, Types, Records),
+        do_totype_list(AsList, Empty, ValueType, TerminatorType, Types, Records)
     catch
         error:{istype_conversion, _, _} ->
             conversion_error(Value, Type)
     end;
-do_totype(Value, {type, list, _} = Type, Types, Records) ->
-    do_totype(do_totype(Value, list, Types, Records), Type, Types, Records);
 %%======================================
 %% Map
 %%======================================
@@ -227,10 +589,8 @@ do_totype([], {type, map, empty}, _, _) ->
 do_totype(<<>>, {type, map, empty}, _, _) ->
     #{};
 do_totype(Value, {type, map, any}, _, _) when is_map(Value) ->
-    io:format("Map Map ~p\n", [any]),
     Value;
 do_totype(Value, {type, map, any}, _, _) when is_list(Value) ->
-    io:format("Map List ~p\n", [any]),
     try
         maps:from_list(Value)
     catch
@@ -238,7 +598,6 @@ do_totype(Value, {type, map, any}, _, _) when is_list(Value) ->
             conversion_error(Value, {type, map, any})
     end;
 do_totype(Value, {type, map, any}, Types, Records) when is_tuple(Value) ->
-    io:format("Map Tuple ~p\n", [any]),
     case maps:get(element(1, Value), Records, undefined) of
         {Arity, Fields, _} when size(Value) =:= Arity ->
             do_totype(lists:zip(Fields, tl(tuple_to_list(Value))), map, Types, Records);
@@ -248,7 +607,6 @@ do_totype(Value, {type, map, any}, Types, Records) when is_tuple(Value) ->
 do_totype(Value, {type, map, any} = Type, _, _) ->
     conversion_error(Value, Type);
 do_totype(Value, {type, map, _} = Type, Types, Records) ->
-    io:format("Map ~p\n", [Type]),
     AsMap = do_totype(Value, map, Types, Records),
     do_totype_map(AsMap, Type, Types, Records);
 %%======================================
@@ -291,7 +649,7 @@ do_totype(Value, {type, union, [Type | UnionTypes]}, Types, Records) ->
     try
         do_totype(Value, Type, Types, Records)
     catch
-        error:{} ->
+        _:_ ->
             do_totype(Value, {type, union, UnionTypes}, Types, Records)
     end;
 %%======================================
@@ -312,7 +670,7 @@ do_totype(Value, {type, binary, []}, Types, Records) when is_pid(Value) orelse
 do_totype(Value, {type, binary, []}, _, _) when is_atom(Value) ->
     atom_to_binary(Value, utf8);
 do_totype(Value, {type, binary, []}, _, _) when is_float(Value) ->
-    float_to_binary(Value);
+    float_to_binary(Value, [{decimals, 20}, compact]);
 do_totype(Value, {type, binary, []}, _, _) when is_integer(Value) ->
     integer_to_binary(Value);
 do_totype(Value, {type, binary, []}, _, _) when is_list(Value) ->
@@ -491,7 +849,6 @@ do_totype(Value, {type, number, []}, _, _) when is_binary(Value) ->
 %do_totype(Value, {record, Record, Overrides}, Types, Records) when is_map(Value) ->
 %    #{Record := {Arity, Fields, FieldTypes}} = Records,
 
-
 %%======================================
 %% Custom Type
 %%======================================
@@ -503,6 +860,24 @@ do_totype(Value, {type, TypeName, []}, Types, Records) ->
 %%======================================
 do_totype(Value, Type, _, _) ->
     conversion_error(Value, Type).
+
+%%==========================================================
+%% do_totype_literal
+%%==========================================================
+%% @doc Convert into the specific list typing.
+%% @end
+do_totype_literal(Value, {literal, Type, LiteralValue} = Literal, Types, Records) ->
+    try
+        case do_totype(Value, Type, Types, Records) of
+            LiteralValue ->
+                LiteralValue;
+            _ ->
+                conversion_error(Value, Literal)
+        end
+    catch
+        Class:Error ->
+            conversion_error(Value, Literal, {Class, Error})
+    end.
 
 %%==========================================================
 %% do_totype_list
@@ -548,12 +923,7 @@ make_improper_list([Hd | Tl], Terminator) ->
 %%==========================================================
 do_totype_map(Value0, {_, _, MapFields} = Type, Types, Records) ->
     %% Get the field types that are required
-    Required0 = lists:filtermap(fun({require, KeyType, ValueType}) ->
-                                       {true, {KeyType, ValueType}};
-                                   (_) ->
-                                       false
-                                end,
-                                MapFields),
+    Required0 = map_fields_required(MapFields),
 
     %% Generate a new map of converted types while reducing the set of required fields.
     {Required1, Value1} = maps:fold(fun(K0, V0, {RequiredAcc, ValueAcc}) ->
@@ -582,7 +952,32 @@ do_totype_map_assoc(Key, Value, [AssocType | AssocTypes], Types, Records) ->
         _:_ ->
             do_totype_map_assoc(Key, Value, AssocTypes, Types, Records)
     end.
+
+%%==============================================================================
+%% Common
+%%==============================================================================
+%% map_fields_required()
 %%==========================================================
+map_fields_required(MapFields) ->
+    lists:filtermap(fun({require, KeyType, ValueType}) ->
+                           {true, {KeyType, ValueType}};
+                       (_) ->
+                           false
+                    end,
+                    MapFields).
+%%==========================================================
+%% shorthand()
+%%==========================================================
+shorthand(Value, list, Types, Records, Action) ->
+    Action(Value, {type, list, any}, Types, Records);
+shorthand(Value, map, Types, Records, Action) ->
+    Action(Value, {type, map, any}, Types, Records);
+shorthand(Value, Type, Types, Records, Action) ->
+    Action(Value, {type, Type, []}, Types, Records).
+
+%%==============================================================================
+%% Errors
+%%==============================================================================
 %% conversion_error
 %%==========================================================
 conversion_error(Value, Type) ->
@@ -590,3 +985,10 @@ conversion_error(Value, Type) ->
 
 conversion_error(Value, Type, Reason) ->
     error({istype_conversion, Value, Type, Reason}).
+
+
+
+
+
+
+

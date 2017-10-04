@@ -500,20 +500,11 @@ empty_map_validation_test() ->
     true = istype(return_value(#{}), #{}).
 
 empty_map_conversion_test() ->
-    %% TODO: Fix Me
-    %%#{} = totype([], #{}),
-    %%#{} = totype(#{}, #{}),
+    #{} = totype([], #{}),
+    #{} = totype(#{}, #{}),
 
-    %% #{a := b,
-    %%   b := c} = totype([{a, b}, {b, c}], #{}),
-    %% #{a := b,
-    %%   b := c} = totype(#{a => b, b => c}, #{}),
-
-    %% TODO: Fix Me
-    %% #{a := undefined,
-    %%   b := undefined} = totype(#record1{}, #{}),
-
-    ok = ?CONVERT_ERROR(atom, #{}).
+    ok = ?CONVERT_ERROR(atom, #{}),
+    ok = ?CONVERT_ERROR([{a, b}], #{}).
 
 %%=====================================
 %% Tuple
@@ -545,22 +536,18 @@ empty_map_conversion_test() ->
 %% @end
 -type term_type() :: term().
 term_validation_test() ->
-    %% TODO: Fix Me
-    %% true = istype(return_value(atom), term()).
-    %% true = istype(return_value(<<"binary">>), term()).
-    %% true = istype(return_value(1.0), term()).
-    %% true = istype(return_value(1), term()).
-    %% true = istype(return_value("list"), term()).
-    ok.
+    true = istype(return_value(atom), term()),
+    true = istype(return_value(<<"binary">>), term()),
+    true = istype(return_value(1.0), term()),
+    true = istype(return_value(1), term()),
+    true = istype(return_value("list"), term()).
 
 term_conversion_test() ->
-    %% TODO: Fix Me
-    %% atom = totype(atom, term()),
-    %% <<"binary">> = totype(<<"binary">>, term()),
-    %% 1.0 = totype(1.0, term()),
-    %% 1 = totype(1, term()),
-    %% "list" = totype("list", term()).
-    ok.
+    atom = totype(atom, term()),
+    <<"binary">> = totype(<<"binary">>, term()),
+    1.0 = totype(1.0, term()),
+    1 = totype(1, term()),
+    "list" = totype("list", term()).
 
 %%=====================================
 %% binary()
@@ -575,7 +562,7 @@ binary_validation_test() ->
 binary_conversion_test() ->
     <<"binary">> = totype(binary, binary()),
     <<"binary">> = totype(<<"binary">>, binary()),
-    <<"1.00000000000000000000e+00">> = totype(1.0, binary()),
+    <<"1.0">> = totype(1.0, binary()),
     <<"1">> = totype(1, binary()),
     <<"binary">> = totype("binary", binary()),
     <<"#Fun<istype", _/binary>> = totype(fun() -> atom end, binary()),
@@ -643,10 +630,10 @@ byte_conversion_test() ->
 %% @end
 -type char_type() :: char().
 char_validation_test() ->
-    false = istype(atom, char()),
-    true = istype(0, char()),
-    false = istype(-1, char()),
-    false = istype(16#110000, char()).
+    false = istype(return_value(atom), char()),
+    true = istype(return_value(0), char()),
+    false = istype(return_value(-1), char()),
+    false = istype(return_value(16#110000), char()).
 
 char_conversion_test() ->
     0 = totype(0, char()),

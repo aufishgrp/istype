@@ -11,10 +11,12 @@ parse_transform(Forms, _Options) ->
     Types = forms:reduce(fun get_types/2,
                          #{iolist => parse_type({type, 1, iolist, []})},
                          Forms),
-    forms:map(fun(Form) ->
+    X = forms:map(fun(Form) ->
                   do_transform(Form, Types, Records)
               end,
-              Forms).
+              Forms),
+    %io:format("Forms\n~p\n", [X]),
+    X.
 
 do_transform({call, Line, {atom, _, istype}, [Value, Type]}, Types, Records) ->
     %% is_integer(Value) orelse is_boolean(Value) ...
@@ -557,13 +559,14 @@ istype(Line, Value, {record, Record, RecordInfo}, Types, Records) ->
 %%======================================
 %% @doc Handler for maps and lists that need deep inspection.
 %% @end
-istype(Line, Value, {deep_type, _, _} = TypeSpec, Types, Records) ->
+istype(Line, Value, {deep_type, _, _} = TypeSpec0, Types, Records) ->
+    TypeSpec1 = setelement(1, TypeSpec0, type),
     {call, Line,
         {remote, Line,
             {atom, Line, istype_lib},
             {atom, Line, istype}},
         [Value,
-         erl_parse:abstract(TypeSpec, [{line, Line}]),
+         erl_parse:abstract(TypeSpec1, [{line, Line}]),
          erl_parse:abstract(Types, [{line, Line}]),
          erl_parse:abstract(Records, [{line, Line}])]};
 %%=====================================
@@ -821,16 +824,18 @@ parse_type({type, _, range, [Low, High]}) ->
 %%      validatd/converted with a common algorithm. Convert all List variants
 %%      into an standardized internal format.
 %%
-%%      Calls are handled by the default call handler.
+%%      Calls handled by the default call handler.
 %% @end
+parse_type({type, _, list, [{type, any, []}]}) ->
+    {type, list, any};
 parse_type({type, _, list, [Type]}) ->
-    {type, list, [maybe_empty, parse_type(Type), parse_type({type, 1, nil, []})]};
-parse_type({type, _, maybe_improper_list, Types}) ->
-    {type, list, [maybe_empty | lists:map(fun parse_type/1, Types)]};
+    {type, list, {maybe_empty, parse_type(Type), parse_type({type, 1, nil, []})}};
+parse_type({type, _, maybe_improper_list, [_, _] = Types}) ->
+    {type, list, list_to_tuple([maybe_empty | lists:map(fun parse_type/1, Types)])};
 parse_type({type, _, nonempty_improper_list, Types}) ->
-    {type, list, [nonempty | lists:map(fun parse_type/1, Types)]};
+    {type, list, list_to_tuple([nonempty | lists:map(fun parse_type/1, Types)])};
 parse_type({type, _, nonempty_list, [Type]}) ->
-    {type, list, [nonempty, parse_type(Type), parse_type({type, 1, nil, []})]};
+    {type, list, {nonempty, parse_type(Type), parse_type({type, 1, nil, []})}};
 %%======================================
 %% Map
 %%======================================
@@ -937,13 +942,13 @@ parse_type({type, Line, byte, []}) ->
 %% @doc Expect :: {type, _, char, []}
 %%              | {call, _, {atom, _, char}, []}
 %%
-%%      Alias for 0..16#110000.
+%%      Alias for 0..16#10ffff.
 %%
 %%      Calls are handled by the default call handler.
 %% @end
 parse_type({type, Line, char, []}) ->
     parse_type({type, Line, range, [{integer, Line, 0},
-                                     {integer, Line, 16#110000}]});
+                                     {integer, Line, 16#10ffff}]});
 %%======================================
 %% nil()
 %%======================================
@@ -1227,7 +1232,7 @@ parse_type({type, Line, nonempty_maybe_improper_list, []}) ->
 %%      Calls handled by the default call handler.
 %% @end
 parse_type({type, _, nonempty_maybe_improper_list, Types}) ->
-    {type, list, [nonempty | lists:map(fun parse_type/1, Types)]};
+    {type, list, list_to_tuple([nonempty | lists:map(fun parse_type/1, Types)])};
 %%======================================
 %% Record
 %%======================================
