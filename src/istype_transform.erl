@@ -5,18 +5,20 @@
 %% parse_transform api
 %%====================================================================
 parse_transform(Forms, _Options) ->
-    %UserTypes = forms:reduce(fun get_types/2, #{types => #{}, records => #{}}, Forms),
-    %forms:map(fun(Form) -> do_transform(Form, UserTypes) end, Forms).
-    Records = forms:reduce(fun get_records/2, #{}, Forms),
-    Types = forms:reduce(fun get_types/2,
-                         #{iolist => parse_type({type, 1, iolist, []})},
-                         Forms),
-    X = forms:map(fun(Form) ->
-                  do_transform(Form, Types, Records)
-              end,
-              Forms),
-    %io:format("Forms\n~p\n", [X]),
-    X.
+    try
+        Records = forms:reduce(fun get_records/2, #{}, Forms),
+        Types = forms:reduce(fun get_types/2,
+                             #{iolist => parse_type({type, 1, iolist, []})},
+                             Forms),
+        forms:map(fun(Form) ->
+                      do_transform(Form, Types, Records)
+                  end,
+                  Forms)
+    catch
+        Class:Error ->
+            handle_error(Class, Error, erlang:get_stacktrace()),
+            halt(1)
+    end.
 
 do_transform({call, Line, {atom, _, istype}, [Value, Type]}, Types, Records) ->
     %% is_integer(Value) orelse is_boolean(Value) ...
@@ -27,7 +29,9 @@ do_transform({call, Line, {atom, _, istype}, [Value, Type]}, Types, Records) ->
     %%     __IsType_1 = expression(),
     %%     is_integer(__IsType_1) orelse is_boolean(__IsType_1) ...
     %% end
-    optimize_istype(Line, Value, try_parse_type(Type), Types, Records);
+    X = optimize_istype(Line, Value, parse_type(Type), Types, Records),
+    %io:format("~p\n", [X]),
+    X;
 do_transform({call, Line, {atom, _, totype}, [Value, Type0]}, Types, Records) ->
     %% try
     %%     __IsType_1 = istype_lib:totype(Value, TypeInfo),
@@ -37,7 +41,7 @@ do_transform({call, Line, {atom, _, totype}, [Value, Type0]}, Types, Records) ->
     %%     error:{badmatch, false} ->
     %%         error({istype_conversion, type(), __IsType_1})
     %% end
-    {_, Type, _} = Type1 = try_parse_type(Type0),
+    {_, Type, _} = Type1 = parse_type(Type0),
     Converted = get_var(Line),
     {'try', Line,
         [{match, Line,
@@ -78,6 +82,9 @@ do_transform({call, Line, {atom, _, asserttype}, Args}, Types, Records) ->
         do_transform({call, Line, {atom, Line, istype}, Args}, Types, Records)};
 do_transform(Form, _, _) ->
     Form.
+
+handle_error(Class, Error, Stack) ->
+    io:format("Well this wasn't good...\n~p:~p\n~p\n", [Class, Error, Stack]).
 
 %%====================================================================
 %% istype functions
@@ -220,8 +227,28 @@ istype(Line, Value, {type, atom, []}, _, _) ->
 %%=====================================
 %% Bitstring
 %%=====================================
-%% @doc Handled by the literal handler.
+%% @doc Expect :: {type, bitstring, {M, N}}
 %% @end
+istype(Line, Value, {type, bitstring, {0, 0}}, _, _) ->
+    {op, Line, '=:=',
+            Value,
+            {bin, Line, []}};
+
+istype(Line, Value, {type, bitstring, {M, 0}}, _, _) ->
+    {op, Line, 'andalso',
+        {call, Line, {atom, Line, is_bitstring}, [Value]},
+        {op, Line, '=:=',
+            {call, Line, {atom, Line, bit_size}, [Value]},
+            {integer, Line, M}}};
+
+istype(Line, Value, {type, bitstring, {M, N}}, _, _) ->
+    {op, Line, 'andalso',
+        {call, Line, {atom, Line, is_bitstring}, [Value]},
+        {op, Line, '=:=',
+            {op, Line, 'rem',
+                {call, Line, {atom, Line, bit_size}, [Value]},
+                {integer, Line, N}},
+            {integer, Line, M}}};
 %%=====================================
 %% float()
 %%=====================================
@@ -239,7 +266,9 @@ istype(Line, Value, {type, float, []}, _, _) ->
 %%      fun().
 %% @end
 istype(Line, Value, {type, 'fun', []}, _, _) ->
-    {call, Line, {atom, Line, is_fun}, [Value]};
+    {call, Line, {atom, Line, is_function}, [Value]};
+istype(Line, Value, {type, 'fun', _}, _, _) ->
+    {call, Line, {atom, Line, is_function}, [Value]};
 %%=====================================
 %% Integer
 %%=====================================
@@ -592,7 +621,7 @@ istype(Line, Value, {Class, Type, _}, Types, Records) when Class =:= type orelse
                    X
                catch
                    _:_ ->
-                       halt(io_lib:format("Type ~p unknown.", [Type]))
+                       error({unknown_type, Type})
                end,
     istype(Line, Value, TypeSpec, Types, Records);
 istype(Line, Value, {record, Record, _}, Types, Records) ->
@@ -601,7 +630,7 @@ istype(Line, Value, {record, Record, _}, Types, Records) ->
                      X
                  catch
                      _:_ ->
-                         halt(io_lib:format("Record ~p unknown.", [Record]))
+                        error({unknown_record, Record})
                  end,
     istype(Line, Value, RecordSpec, Types, Records).
 
@@ -653,16 +682,6 @@ istype_record(Line, Value0, Record, [RecordFieldSpec | RecordFields], Types, Rec
 %% @doc Functions that are responsible for converting type specs and
 %%      calls that represent type specs into the interlan type format.
 %% @end
-%% @doc If we fail to parse a type print an error and halt the build.
-%% @end
-try_parse_type(Type) ->
-    try
-        parse_type(Type)
-    catch
-        _:_ ->
-            halt(io_lib:format("Error when parsing ~p.", [Type]))
-    end.
-
 %%==========================================================
 %% parse_type
 %%==========================================================
@@ -742,10 +761,8 @@ parse_type({atom, _, Atom}) ->
 %%======================================
 %% Bitstring
 %%======================================
-%% @doc Expect :: <<>>
-%%              | <<_:M>>
-%%              | <<_:_*N>>
-%%              | <<_:M, _:_*N>>
+%% @doc Expect :: {type, _, binary, [{integer, _, M}, {integer, _, N}]}
+%%              | {bin, _, []}
 %%
 %%      These patterns represent specific bitstrings formats.
 %%      They need to be treated as literal values and should only
@@ -753,6 +770,8 @@ parse_type({atom, _, Atom}) ->
 %% @end
 parse_type({type, _, binary, [{integer, _, M}, {integer, _, N}]}) ->
     {type, bitstring, {M, N}};
+  parse_type({bin, _, []}) ->
+    {type, bitstring, {0, 0}};
 %%======================================
 %% float()
 %%======================================
@@ -1259,7 +1278,7 @@ parse_type({Class, _, Type, TypeArgs}) when Class =:= type orelse
                                             Class =:= user_type ->
     {type, Type, lists:map(fun parse_type/1, TypeArgs)};
 parse_type(Type) ->
-    error(Type).
+    error({parse_type, Type}).
 
 %%=========================================================
 %% parse_record
@@ -1310,7 +1329,7 @@ get_var(Line) ->
 %% @doc Function that generates a mapping of types to type specs.
 %% @end
 get_types({attribute, _, type, {Type, TypeSpec, _}}, Acc) ->
-  Acc#{Type => try_parse_type(TypeSpec)};
+  Acc#{Type => parse_type(TypeSpec)};
 get_types(_, Acc) ->
   Acc.
 

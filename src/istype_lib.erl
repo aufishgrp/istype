@@ -329,10 +329,16 @@ do_istype_map(Value, {type, map, MapFields}, Types, Records) ->
     %% Get the field types that are required
     Required0 = map_fields_required(MapFields),
 
+    io:format("Fields ~p\nRequired ~p\n", [MapFields, Required0]),
+
     %% Generate a new map of converted types while reducing the set of required fields.
     Results = maps:fold(fun(K0, V0, {RequiredAcc, true}) ->
-                               {Result, Assoc} = do_istype_map_assoc(K0, V0, MapFields, Types, Records),
-                               {RequiredAcc -- [Assoc], Result};
+                                case do_istype_map_assoc(K0, V0, MapFields, Types, Records) of
+                                    {true, Assoc} ->
+                                        {RequiredAcc -- [Assoc], true};
+                                    false ->
+                                        {RequiredAcc, false}
+                                end;
                            (_, _, False) ->
                                False
                         end,
@@ -349,12 +355,17 @@ do_istype_map(Value, {type, map, MapFields}, Types, Records) ->
 do_istype_map_assoc(_, _, [], _, _) ->
     false;
 do_istype_map_assoc(Key, Value, [AssocType | AssocTypes], Types, Records) ->
-    {KeyType, ValueType} = AssocType,
+    {KeyType, ValueType} = case AssocType of
+        {require, K, V} ->
+            {K, V};
+        {K, V} ->
+            {K, V}
+    end,
     Result = do_istype(Key, KeyType, Types, Records) andalso
              do_istype(Value, ValueType, Types, Records),
     case Result of
         true ->
-            true;
+            {true, {KeyType, ValueType}};
         false ->
             do_istype_map_assoc(Key, Value, AssocTypes, Types, Records)
     end.
@@ -394,6 +405,8 @@ totype(Value, Type, Types, Records) ->
    try
         do_totype(Value, Type, Types, Records)
     catch
+        error:{conversion_error, V1, T1, Reason} ->
+            conversion_error(Value, Type, {V1, T1, Reason});
         Class:Error ->
             Reason = {Class, Error},
             conversion_error(Value, Type, Reason)
@@ -485,6 +498,10 @@ do_totype(Value, {type, atom, []}, _, _) when is_list(Value) ->
 %%======================================
 %% @doc Bitstring literals and patterns
 %% @end
+do_totype(<<>>, {type, bitstring, {0, 0}}, _, _) ->
+    <<>>;
+do_totype([], {type, bitstring, {0, 0}}, _, _) ->
+    <<>>;
 %%======================================
 %% float()
 %%======================================
@@ -577,7 +594,9 @@ do_totype(Value, {type, list, {Empty, ValueType, TerminatorType}} = Type, Types,
         do_totype_list(AsList, Empty, ValueType, TerminatorType, Types, Records)
     catch
         error:{istype_conversion, _, _} ->
-            conversion_error(Value, Type)
+            conversion_error(Value, Type);
+        _:_ ->
+            error(error)
     end;
 %%======================================
 %% Map
@@ -892,14 +911,23 @@ do_totype_list([], nonempty, ValueType, TerminatorType, _, _, _) ->
     conversion_error([], {type, list, [nonempty, ValueType, TerminatorType]});
 %% @doc Maybe empty with an empty input is ok if [] is a valid terminator type.
 %% @end
-do_totype_list([], maybe_empty, _, TerminatorType, Types, Records, _) ->
-    do_totype([], TerminatorType, Types, Records);
+do_totype_list([], maybe_empty, ValueType, TerminatorType, Types, Records, _) ->
+    case do_istype([], TerminatorType, Types, Records) of
+        true ->
+            [];
+        false ->
+            conversion_error([], {type, list, {maybe_empty, ValueType, TerminatorType}})
+    end;
 %% @doc When we see a nil tail, validate that nil is a valid tail,
 %%      add to the Acc, and reverse the result.
 %% @end
 do_totype_list([Hd | []], _, ValueType, TerminatorType, Types, Records, Acc) ->
-    _ = do_totype([], TerminatorType, Types, Records),
-    lists:reverse([do_totype(Hd, ValueType, Types, Records) | Acc]);
+    case istype([], TerminatorType, Types, Records) of
+        true ->
+            lists:reverse([do_totype(Hd, ValueType, Types, Records) | Acc]);
+        false ->
+            conversion_error([], TerminatorType)
+    end;
 %% @doc When tail is a list convert the value and recurse.
 %% @end
 do_totype_list([Hd | Tl], Empty, ValueType, TerminatorType, Types, Records, Acc0) when is_list(Tl) ->

@@ -172,11 +172,11 @@ none_validation_test() ->
     false = istype(return_value("list"), none()).
 
 none_conversion_test() ->
-    ok = ?CONVERT_ERROR(return_value(atom), none()),
-    ok = ?CONVERT_ERROR(return_value(<<"binary">>), none()),
-    ok = ?CONVERT_ERROR(return_value(1.0), none()),
-    ok = ?CONVERT_ERROR(return_value(1), none()),
-    ok = ?CONVERT_ERROR(return_value("list"), none()).
+    ok = ?CONVERT_ERROR(atom, none()),
+    ok = ?CONVERT_ERROR(<<"binary">>, none()),
+    ok = ?CONVERT_ERROR(1.0, none()),
+    ok = ?CONVERT_ERROR(1, none()),
+    ok = ?CONVERT_ERROR("list", none()).
 
 %%=====================================
 %% pid()
@@ -298,15 +298,44 @@ erlang_atom_conversion_test() ->
 %% @doc Bitstring :: <<>>
 %%                 | <<_:M>>
 %%                 | <<_:_*N>>
-%%                 | <<_:M, _:_*N>>
+%%                 | <<_:M, _:_*N>> 
 %%
 %%      M :: integer() >= 1
 %%      N :: integer() >= 1
 %% @end
 -type empty_bitstring_type() :: <<>>.
 -type m_bitstring_type() :: <<_:1>>.
--type n_bitstring_type() :: <<_:_*1>>.
--type mn_bitstring_type() :: <<_:1, _:_*1>>.
+-type n_bitstring_type() :: <<_:_*4>>.
+-type mn_bitstring_type() :: <<_:1, _:_*4>>.
+
+literal_bitstring_validation_test() ->
+    false = istype(return_value(atom), <<>>),
+    true = istype(return_value(<<>>), <<>>),
+    true = istype(return_value(<<>>), empty_bitstring_type()),
+
+    false = istype(return_value(atom), m_bitstring_type()),
+    true = istype(return_value(<<0:1>>), m_bitstring_type()),
+
+    false = istype(return_value(atom), n_bitstring_type()),
+    false = istype(return_value(<<0:1>>), n_bitstring_type()),
+    true = istype(return_value(<<0:4>>), n_bitstring_type()),
+    true = istype(return_value(<<0:8>>), n_bitstring_type()),
+
+    false = istype(return_value(atom), mn_bitstring_type()),
+    true = istype(return_value(<<0:1>>), mn_bitstring_type()),
+    false = istype(return_value(<<0:4>>), mn_bitstring_type()),
+    true = istype(return_value(<<0:5>>), mn_bitstring_type()).
+
+literal_bitstring_conversion_test() ->
+    <<>> = totype(<<>>, empty_bitstring_type()),
+    <<>> = totype([], empty_bitstring_type()),
+
+    ok = ?CONVERT_ERROR([1], m_bitstring_type()),
+    ok = ?CONVERT_ERROR(#{a => 1}, m_bitstring_type()),
+
+    ok = ?CONVERT_ERROR(<<0:1>>, m_bitstring_type()),
+    ok = ?CONVERT_ERROR(<<0:4>>, n_bitstring_type()),
+    ok = ?CONVERT_ERROR(<<0:5>>, mn_bitstring_type()).
 
 %%=====================================
 %% float()
@@ -353,6 +382,20 @@ float_conversion_test() ->
 -type any_arity_fun_returning_type() :: fun((...) -> atom()).
 -type fun_returning_type() :: fun(() -> atom()).
 -type typed_fun_type() :: fun((atom()) -> atom()).
+
+fun_validation_test() ->
+    false = istype(return_value(atom), any_fun_type()),
+
+    true = istype(return_value(fun return_value/1), any_fun_type()),
+    true = istype(return_value(fun() -> ok end), any_fun_type()).
+
+fun_conversion_test() ->
+    Fun = fun() -> ok end,
+    ok = ?CONVERT_ERROR(atom, any_fun_type()),
+    ok = ?CONVERT_ERROR(Fun, any_fun_type()),
+    ok = ?CONVERT_ERROR(Fun, any_arity_fun_returning_type()),
+    ok = ?CONVERT_ERROR(Fun, fun_returning_type()),
+    ok = ?CONVERT_ERROR(Fun, typed_fun_type()).    
 
 %%=====================================
 %% Integer
@@ -454,6 +497,60 @@ range_conversion_test() ->
 -type nonempty_improper_list_type() :: nonempty_improper_list(atom(), atom()).
 -type nonempty_list_type() :: nonempty_list(atom()).
 
+list_validation_test() ->
+    false = istype(return_value(atom), list(any())),
+    true = istype(return_value([atom]), list(any())),
+
+    true = istype(return_value([]), list(atom())),
+    false = istype(return_value([1]), list(atom())),
+    true = istype(return_value([atom]), list(atom())),
+    true = istype(return_value([atom, atom]), list(atom())),
+    false = istype(return_value([atom, 1]), list(atom())),
+
+    true = istype(return_value([]), typed_list_type()),
+    false = istype(return_value([1]), typed_list_type()),
+    true = istype(return_value([atom]), typed_list_type()),
+    true = istype(return_value([atom, atom]), typed_list_type()),
+    false = istype(return_value([atom, 1]), typed_list_type()),
+    
+    true = istype(return_value([]), maybe_improper_list_type()),
+    false = istype(return_value([1]), maybe_improper_list_type()),
+    true = istype(return_value([atom]), maybe_improper_list_type()),
+    true = istype(return_value([atom | atom]), maybe_improper_list_type()),
+    false = istype(return_value([atom | 1]), maybe_improper_list_type()),
+
+    false = istype(return_value([]), nonempty_improper_list_type()),
+    false = istype(return_value([1]), nonempty_improper_list_type()),
+    false = istype(return_value([atom]), nonempty_improper_list_type()),
+    true = istype(return_value([atom | atom]), nonempty_improper_list_type()),
+    false = istype(return_value([atom | 1]), nonempty_improper_list_type()),
+
+    false = istype(return_value([]), nonempty_list_type()),
+    false = istype(return_value([1]), nonempty_list_type()),
+    true = istype(return_value([atom]), nonempty_list_type()),
+    true = istype(return_value([atom, atom]), nonempty_list_type()),
+    false = istype(return_value([atom, 1]), nonempty_list_type()).
+
+list_conversion_test() ->
+    [] = totype([], typed_list_type()),
+    [atom, atom] = totype([atom, "atom"], typed_list_type()),
+    ok = ?CONVERT_ERROR([atom, 1], typed_list_type()),
+
+    [] = totype([], maybe_improper_list_type()),
+    [atom, atom] = totype([atom, "atom"], maybe_improper_list_type()),
+    [atom | atom] = totype([atom | <<"atom">>], maybe_improper_list_type()),
+    ok = ?CONVERT_ERROR([atom, 1], maybe_improper_list_type()),
+
+    ok = ?CONVERT_ERROR([], nonempty_improper_list_type()),
+    [atom | atom] = totype([atom | <<"atom">>], nonempty_improper_list_type()),
+    ok = ?CONVERT_ERROR([atom, 1], nonempty_improper_list_type()),
+
+    ok = ?CONVERT_ERROR([], nonempty_list_type()),
+    X = totype([atom, "atom"], nonempty_list_type()),
+    io:format("Converted to ~p\n", [X]),
+    [atom, atom] = X,
+    ok = ?CONVERT_ERROR([atom, 1], nonempty_list_type()).
+
 %%=====================================
 %% Map
 %%=====================================
@@ -505,6 +602,12 @@ empty_map_conversion_test() ->
 
     ok = ?CONVERT_ERROR(atom, #{}),
     ok = ?CONVERT_ERROR([{a, b}], #{}).
+
+mandatory_type_validation_test() ->
+    false = istype(return_value(#{}),  mandatory_map_type()),
+    false = istype(return_value(#{1 => 1}),  mandatory_map_type()),
+    false = istype(return_value(#{atom => 1}),  mandatory_map_type()),
+    true = istype(return_value(#{atom => atom}),  mandatory_map_type()).
 
 %%=====================================
 %% Tuple
@@ -673,8 +776,6 @@ number_conversion_test() ->
 %% @doc list() :: [any()]
 %% @end
 -type list_type() :: list().
-list_validation_test() ->
-    ok.
 
 %%=====================================
 %% maybe_improper_list()
@@ -788,7 +889,6 @@ nonempty_string_conversion_test() ->
 %%=====================================
 %% @doc function() :: fun()
 %% @end
-
 
 %%=====================================
 %% module()
