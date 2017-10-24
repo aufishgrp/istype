@@ -603,11 +603,32 @@ empty_map_conversion_test() ->
     ok = ?CONVERT_ERROR(atom, #{}),
     ok = ?CONVERT_ERROR([{a, b}], #{}).
 
-mandatory_type_validation_test() ->
-    false = istype(return_value(#{}),  mandatory_map_type()),
-    false = istype(return_value(#{1 => 1}),  mandatory_map_type()),
-    false = istype(return_value(#{atom => 1}),  mandatory_map_type()),
-    true = istype(return_value(#{atom => atom}),  mandatory_map_type()).
+mandatory_map_validation_test() ->
+    false = istype(return_value(#{}), mandatory_map_type()),
+    false = istype(return_value(#{1 => 1}), mandatory_map_type()),
+    false = istype(return_value(#{atom => 1}), mandatory_map_type()),
+    true = istype(return_value(#{atom => atom}), mandatory_map_type()).
+
+mandatory_map_conversion_test() ->
+    #{atom := atom} = totype([{atom, "atom"}], mandatory_map_type()),
+    #{atom := atom} = totype(#{<<"atom">> => "atom"}, mandatory_map_type()),
+
+    ok = ?CONVERT_ERROR(atom, mandatory_map_type()).
+
+optional_map_validation_test() ->
+    true = istype(return_value(#{}), optional_map_type()),
+    false = istype(return_value(#{1 => 1}), optional_map_type()),
+    false = istype(return_value(#{atom => <<"binary">>}), optional_map_type()),
+    true = istype(return_value(#{<<"binary">> => <<"binary">>}), optional_map_type()).
+
+optional_map_conversion_test() ->
+    #{} = totype(return_value(#{}), optional_map_type()),
+    #{} = totype(return_value([]), optional_map_type()),
+
+    #{<<"binary">> := <<"binary">>} = totype(return_value(#{binary => binary}), optional_map_type()),
+    #{<<"binary">> := <<"binary">>} = totype(return_value([{"binary", binary}]), optional_map_type()),
+
+    ok = ?CONVERT_ERROR(atom, optional_map_type()).
 
 %%=====================================
 %% Tuple
@@ -739,7 +760,9 @@ char_validation_test() ->
     false = istype(return_value(16#110000), char()).
 
 char_conversion_test() ->
-    0 = totype(0, char()),
+    0 = totype("0", char()),
+    0 = totype(<<"0">>, char()),
+    0 = totype(0.0, char()),
     ok = ?CONVERT_ERROR(atom, char()),
     ok = ?CONVERT_ERROR(-1, char()).
 

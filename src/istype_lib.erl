@@ -355,12 +355,7 @@ do_istype_map(Value, {type, map, MapFields}, Types, Records) ->
 do_istype_map_assoc(_, _, [], _, _) ->
     false;
 do_istype_map_assoc(Key, Value, [AssocType | AssocTypes], Types, Records) ->
-    {KeyType, ValueType} = case AssocType of
-        {require, K, V} ->
-            {K, V};
-        {K, V} ->
-            {K, V}
-    end,
+    {_, KeyType, ValueType} = AssocType,
     Result = do_istype(Key, KeyType, Types, Records) andalso
              do_istype(Value, ValueType, Types, Records),
     case Result of
@@ -955,8 +950,13 @@ do_totype_map(Value0, {_, _, MapFields} = Type, Types, Records) ->
 
     %% Generate a new map of converted types while reducing the set of required fields.
     {Required1, Value1} = maps:fold(fun(K0, V0, {RequiredAcc, ValueAcc}) ->
-                                        {K1, V1, Assoc} = do_totype_map_assoc(K0, V0, MapFields, Types, Records),
-                                        {RequiredAcc -- [Assoc], ValueAcc#{K1 => V1}}
+                                        case do_istype_map_assoc(K0, V0, MapFields, Types, Records) of
+                                            {true, Assoc} ->
+                                                {RequiredAcc -- [Assoc], ValueAcc#{K0 => V0}};
+                                            false ->
+                                                {K1, V1, Assoc} = do_totype_map_assoc(K0, V0, MapFields, Types, Records),
+                                                {RequiredAcc -- [Assoc], ValueAcc#{K1 => V1}}
+                                        end
                                     end,
                                     {Required0, #{}},
                                     Value0),
@@ -965,7 +965,7 @@ do_totype_map(Value0, {_, _, MapFields} = Type, Types, Records) ->
         [] ->
             Value1;
         _ ->
-            conversion_error(Value0, Type)
+            conversion_error(Value0, Type, {required_remaining, Required1})
     end.
 
 do_totype_map_assoc(Key, Value, [], _, _) ->
@@ -975,7 +975,7 @@ do_totype_map_assoc(Key, Value, [AssocType | AssocTypes], Types, Records) ->
         {_, KeyType, ValueType} = AssocType,
         ConvertedKey = do_totype(Key, KeyType, Types, Records),
         ConvertedValue = do_totype(Value, ValueType, Types, Records),
-        {ConvertedKey, ConvertedValue, AssocType}
+        {ConvertedKey, ConvertedValue, {KeyType, ValueType}}
     catch
         _:_ ->
             do_totype_map_assoc(Key, Value, AssocTypes, Types, Records)
