@@ -497,6 +497,28 @@ do_totype(<<>>, {type, bitstring, {0, 0}}, _, _) ->
     <<>>;
 do_totype([], {type, bitstring, {0, 0}}, _, _) ->
     <<>>;
+do_totype(Value, {type, bitstring, {M, N}}, _, _) when is_bitstring(Value) ->
+    case bit_size(Value) of
+        X when N =:= 0 andalso
+               X =:= M ->
+            Value;
+        X when X rem N =:= M ->
+            Value;
+        _ ->
+            conversion_error(Value, {type, bitstring, {M,N}}, bitstring_length)
+    end;
+do_totype(Value, {type, bitstring, _} = Type, Types, Records) when is_atom(Value) ->
+    AsBinary = do_totype(Value, binary, Types, Records),
+    do_totype(AsBinary, Type, Types, Records);
+%% @doc Even though we support binary -> bitstring there is no need to do any work
+%%      as binary is a subset of bitstring.
+%% @end
+%do_totype(Value, {type, bitstring, _} = Type, Types, Records) when is_binary(Value) ->
+%    AsBinary = do_totype(Value, binary, Types, Records),
+%    do_totype(AsBinary, Type, Types, Records);
+do_totype(Value, {type, bitstring, _} = Type, Types, Records) when is_list(Value) ->
+    AsBinary = do_totype(Value, binary, Types, Records),
+    do_totype(AsBinary, Type, Types, Records);
 %%======================================
 %% float()
 %%======================================
