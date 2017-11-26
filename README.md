@@ -164,6 +164,8 @@ There are a few exceptions to this rule, specifically for complex types such as 
 
 It should also be pointed out that not all patterns you use in type specs can be used as the type spec to totype. This is due to the nature of the Erlang parser. Bitstrings being the most notable of this group. In these cases it's necessary to specify a custom type to use within totype.
 
+When reading the totype sections below it should be assumed that all reasonable conversions are supported. When something
+
 ### any()
 By definition all values fall within the any() type.
 
@@ -188,6 +190,7 @@ Supports conversion from the following types
 
 * pid()
 * list()
+* bitstring()
 * binary()
 
 ### port()
@@ -196,6 +199,7 @@ Supports conversion from the following types
 
 * port()
 * list()
+* bitstring()
 * binary()
 
 ### reference()
@@ -204,6 +208,7 @@ Supports conversion from the following types
 
 * reference()
 * list()
+* bitstring()
 * binary()
 
 ### []
@@ -211,6 +216,7 @@ Supports conversion from the following types
 Supports conversion from the following types
 
 * list()
+* bitstring()
 * binary()
 
 The nil type specifies a specific value. If the converted value is not of nil() typing a conversion\_error() is thrown.
