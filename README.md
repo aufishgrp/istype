@@ -164,7 +164,7 @@ There are a few exceptions to this rule, specifically for complex types such as 
 
 It should also be pointed out that not all patterns you use in type specs can be used as the type spec to totype. This is due to the nature of the Erlang parser. Bitstrings being the most notable of this group. In these cases it's necessary to specify a custom type to use within totype.
 
-When reading the totype sections below it should be assumed that all reasonable conversions are supported. When something
+When reading the totype sections below it should be assumed that all reasonable conversions are supported. Notes will be provided for any exceptions.
 
 ### any()
 By definition all values fall within the any() type.
@@ -185,40 +185,13 @@ Always returns false; this can cause compile warnings if used in a guard that ma
 Always throws a conversion\_error().
 
 ### pid()
-##### totype
-Supports conversion from the following types
-
-* pid()
-* list()
-* bitstring()
-* binary()
 
 ### port()
-##### totype
-Supports conversion from the following types
-
-* port()
-* list()
-* bitstring()
-* binary()
 
 ### reference()
-##### totype
-Supports conversion from the following types
-
-* reference()
-* list()
-* bitstring()
-* binary()
 
 ### []
 ##### totype
-Supports conversion from the following types
-
-* list()
-* bitstring()
-* binary()
-
 The nil type specifies a specific value. If the converted value is not of nil() typing a conversion\_error() is thrown.
 
 ### Atom
@@ -227,23 +200,10 @@ Atom :: atom()
       | Erlang_Atom %% 'foo', 'bar', ...
 ```
 #### atom()
-##### totype
-Supports conversion from the following types
-
-* atom()
-* list()
-* binary()
-
 #### ERLANG_ATOM
 ##### istype
 Returns true when value is the literal atom specified as the type.
 ##### totype
-Supports conversion from the following types
-
-* atom()
-* list()
-* binary()
-
 Returns the anticipated atom if value can be converted to it, throws a conversion\_error() otherwise.
 
 ### Bitstring
@@ -257,23 +217,9 @@ Bitstring :: <<>>
 Unlike other types the notation to represent a bitstring's format is invalid within code. Bitstring formats must be masked by a user type.
 
 ##### totype
-Supports conversion from the following types
-
-* atom()
-* Bitstring
-* binary()
-* list()
-
 Conversion to Bitstring types converts the value into a bitstring and then checks that it's of a valid length. If the length is invalid a istype\_conversion error is thrown. No attempts are made to pad the resulting bitstring to an appropriate length.
 
 ### float()
-##### totype
-Supports conversion from the following types
-
-* float()
-* Integer
-* binary()
-* list()
 
 ### Fun
 Converting to a fun is not supported.
@@ -285,14 +231,6 @@ Integer :: integer()
          | Erlang_Integer..Erlang_Integer %% specifies an integer range
 ```
 #### integer()
-##### totype
-Supports conversion from the following types
-
-* float()
-* Integer
-* binary()
-* list()
-
 #### Integer
 Same as integer() but Value must be, or convert to, the specified Integer.
 
@@ -317,18 +255,17 @@ list(empty|non_empty, ValueType(), TerminatorType)
 Istype is not always guard safe when examining lists. When possible the transform will use a combination of is_list/1 and length/1 to validate that the provided value is a list and is non empty. When the type spec specifies specific types for the values and a specific terminator other than nil() each element of the list must then be examined. This cannot be done in a guard safe manner.
 
 ##### totype
-Supports conversion from the following types
+###### Converting between list types
+At present there is no support for converting between proper and improper lists. 
 
-* pid()
-* port()
-* reference()
-* Atom
-* Bitstring
-* float()
-* Integer
-* Map
-* Tuple
-* Record
+###### From Map
+When Value is a Map it is converted into a proplist. The resulting proplist is then converted into a list of the specified type. This of course means that the conversion type should be able to accept a type of {KeyType, ValueType}.
+
+###### From Tuple
+When Value is a Tuple it is first converted into a list. The resulting list is then converted into a list of the specified type.
+
+###### From Record
+When Value is a Tuple with a tag and length that matches a record definition it is assumed to be a record of that type. Records are converted into proplists of type list({atom(), Value}) prior to list conversion.
 
 ### Map
 ```
@@ -349,13 +286,28 @@ Evaluating istype against maps is guard safe for map() and #{} only.
 Maps are seen as valid when all keys match against a key typing and all associated values have the matching value typing. Additionally all mandatory fields must be present and no non-specified fields may be present.
 
 ##### totype
-Supports conversion from the following types
+###### From List
+It is assumed that lists being converted into maps are in the form of list({Key, Value}). No attempt is made to correct a list that is not of typing list({Key, Value}).
 
-* float()
-* integer()
-* map()
-* tuple()
-* record()
-* list()
-* binary()
+###### From Map
+Maps are converted into the form list({Key, Value}) prior to converting to a new map typing.
+
+###### From Record
+When Value is a Tuple with a tag and length that matches a record definition it is assumed to be a record of that type. Records are converted into proplists of type list({atom(), Value}) prior to Map conversion.
+
+### Tuple
+```
+Tuple :: tuple()                             %% denotes a tuple of any size
+       | {}
+       | {TList}
+
+TList :: Type
+       | Type, TList
+```
+##### istype
+Evaluating istype against tuples is guard safe as long as the field types are guard safe. IE since tuples are of fixed length their contents can be examined in constant time as long as none of their fields are of variable length.
+
+##### totype
+
+ 
 
