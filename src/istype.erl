@@ -333,9 +333,9 @@ literal_bitstring_conversion_test() ->
     ok = ?CONVERT_ERROR([1], m_bitstring_type()),
     ok = ?CONVERT_ERROR(#{a => 1}, m_bitstring_type()),
 
-    ok = ?CONVERT_ERROR(<<0:1>>, m_bitstring_type()),
-    ok = ?CONVERT_ERROR(<<0:4>>, n_bitstring_type()),
-    ok = ?CONVERT_ERROR(<<0:5>>, mn_bitstring_type()).
+    ok = ?CONVERT_ERROR(<<0:0>>, m_bitstring_type()),
+    ok = ?CONVERT_ERROR(<<0:1>>, n_bitstring_type()),
+    ok = ?CONVERT_ERROR(<<0:4>>, mn_bitstring_type()).
 
 %%=====================================
 %% float()

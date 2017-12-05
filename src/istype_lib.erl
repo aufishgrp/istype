@@ -71,8 +71,8 @@ do_istype(Value, {type, atom, []}, _, _) ->
 %%======================================
 %% Bitstring
 %%======================================
-%% @doc Handled by literal handler
-%% @end
+do_istype(Value, {type, bitstring, Format}, _, _) ->
+    is_valid_bitstring(Value, Format);
 %%======================================
 %% float()
 %%======================================
@@ -158,8 +158,8 @@ do_istype(Value, {type, binary, []}, _, _) ->
 %%======================================
 %% bitstring()
 %%======================================
-do_istype(Value, {type, bitstring, []}, _, _) ->
-    is_bitstring(Value);
+%% @doc Handled by Bitstring.
+%% @end
 %%======================================
 %% boolean()
 %%======================================
@@ -169,9 +169,9 @@ do_istype(Value, {type, boolean, []}, _, _) ->
 %% byte()
 %%======================================
 %% @doc Converted to range() during parse.
+%% @end
 %%======================================
 %% char()
-%% @end
 %%======================================
 %% @doc Converted to range() during parse.
 %% @end
@@ -497,15 +497,12 @@ do_totype(<<>>, {type, bitstring, {0, 0}}, _, _) ->
     <<>>;
 do_totype([], {type, bitstring, {0, 0}}, _, _) ->
     <<>>;
-do_totype(Value, {type, bitstring, {M, N}}, _, _) when is_bitstring(Value) ->
-    case bit_size(Value) of
-        X when N =:= 0 andalso
-               X =:= M ->
-            Value;
-        X when X rem N =:= M ->
+do_totype(Value, {type, bitstring, {_, _} = Format}, _, _) when is_bitstring(Value) ->
+    case is_valid_bitstring(Value, Format) of
+        true ->
             Value;
         _ ->
-            conversion_error(Value, {type, bitstring, {M,N}}, bitstring_length)
+            conversion_error(Value, {type, bitstring, Format}, bitstring_length)
     end;
 do_totype(Value, {type, bitstring, _} = Type, Types, Records) when is_atom(Value) ->
     AsBinary = do_totype(Value, binary, Types, Records),
@@ -1006,6 +1003,24 @@ do_totype_map_assoc(Key, Value, [AssocType | AssocTypes], Types, Records) ->
 %%==============================================================================
 %% Common
 %%==============================================================================
+%% validate bitstring length
+%%==========================================================
+is_valid_bitstring(Value, {M, N}) when is_bitstring(Value) ->
+    case bit_size(Value) of
+        X when N =:= 0 andalso
+               X =:= M ->
+            true;
+        X when X rem N =:= M ->
+            true;
+        _ ->
+            false
+    end;
+is_valid_bitstring(Value, []) when is_bitstring(Value) ->
+    true;
+is_valid_bitstring(_, _) ->
+    false.
+
+%%==========================================================
 %% map_fields_required()
 %%==========================================================
 map_fields_required(MapFields) ->
