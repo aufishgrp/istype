@@ -63,7 +63,9 @@
               any_tuple_type/0,
               empty_tuple_type/0,
               typed_tuple_type/0,
-              union_type/0,
+              union_a_type/0,
+              union_b_type/0,
+              union_c_type/0,
               term_type/0,
               binary_type/0,
               bitstring_type/0,
@@ -71,7 +73,7 @@
               byte_type/0,
               char_type/0,
               number_type/0,
-              list_type/0,
+              alias_list_type/0,
               string_type/0,
               nonempty_string_type/0,
               module_type/0,
@@ -298,7 +300,7 @@ erlang_atom_conversion_test() ->
 %% @doc Bitstring :: <<>>
 %%                 | <<_:M>>
 %%                 | <<_:_*N>>
-%%                 | <<_:M, _:_*N>> 
+%%                 | <<_:M, _:_*N>>
 %%
 %%      M :: integer() >= 1
 %%      N :: integer() >= 1
@@ -384,18 +386,17 @@ float_conversion_test() ->
 -type typed_fun_type() :: fun((atom()) -> atom()).
 
 fun_validation_test() ->
-    false = istype(return_value(atom), any_fun_type()),
-
-    true = istype(return_value(fun return_value/1), any_fun_type()),
-    true = istype(return_value(fun() -> ok end), any_fun_type()).
+    false = istype(return_value(atom), 'fun'()),
+    true = istype(return_value(fun return_value/1), 'fun'()),
+    true = istype(return_value(fun() -> ok end), 'fun'()).
 
 fun_conversion_test() ->
     Fun = fun() -> ok end,
-    ok = ?CONVERT_ERROR(atom, any_fun_type()),
-    ok = ?CONVERT_ERROR(Fun, any_fun_type()),
+    ok = ?CONVERT_ERROR(atom, 'fun'()),
+    ok = ?CONVERT_ERROR(Fun, 'fun'()),
     ok = ?CONVERT_ERROR(Fun, any_arity_fun_returning_type()),
     ok = ?CONVERT_ERROR(Fun, fun_returning_type()),
-    ok = ?CONVERT_ERROR(Fun, typed_fun_type()).    
+    ok = ?CONVERT_ERROR(Fun, typed_fun_type()).
 
 %%=====================================
 %% Integer
@@ -512,7 +513,7 @@ list_validation_test() ->
     true = istype(return_value([atom]), typed_list_type()),
     true = istype(return_value([atom, atom]), typed_list_type()),
     false = istype(return_value([atom, 1]), typed_list_type()),
-    
+
     true = istype(return_value([]), maybe_improper_list_type()),
     false = istype(return_value([1]), maybe_improper_list_type()),
     true = istype(return_value([atom]), maybe_improper_list_type()),
@@ -546,9 +547,7 @@ list_conversion_test() ->
     ok = ?CONVERT_ERROR([atom, 1], nonempty_improper_list_type()),
 
     ok = ?CONVERT_ERROR([], nonempty_list_type()),
-    X = totype([atom, "atom"], nonempty_list_type()),
-    io:format("Converted to ~p\n", [X]),
-    [atom, atom] = X,
+    [atom, atom] = totype([atom, "atom"], nonempty_list_type()),
     ok = ?CONVERT_ERROR([atom, 1], nonempty_list_type()).
 
 %%=====================================
@@ -568,8 +567,8 @@ list_conversion_test() ->
 -type empty_map_type() :: #{}.
 -type mandatory_map_type() :: #{atom() := atom()}.
 -type optional_map_type() :: #{binary() => binary()}.
--type mixed_map_type() :: #{atom() := atom(),
-                            binary() => binary()}.
+-type mixed_map_type() :: #{atom := atom(),
+                            binary => binary()}.
 
 any_map_validation_test() ->
     false = istype(return_value(atom), map()),
@@ -630,6 +629,24 @@ optional_map_conversion_test() ->
 
     ok = ?CONVERT_ERROR(atom, optional_map_type()).
 
+mixed_map_validation_test() ->
+    false = istype(return_value(atom), mixed_map_type()),
+    false = istype(return_value(#{}), mixed_map_type()),
+    true = istype(return_value(#{atom => atom}), mixed_map_type()),
+    true = istype(return_value(#{atom => atom, binary => <<"binary">>}), mixed_map_type()),
+    false = istype(return_value(#{binary => <<"binary">>}), mixed_map_type()),
+    false = istype(return_value(#{atom => atom, binary => <<"binary">>, 1 => 1}), mixed_map_type()).
+
+mixed_map_conversion_test() ->
+    #{atom := atom} = totype(return_value(#{<<"atom">> => atom}), mixed_map_type()),
+    #{atom := atom} = totype(return_value([{atom, atom}]), mixed_map_type()),
+
+    #{atom := atom,
+      binary := <<"binary">>} = totype(return_value(#{atom => atom, <<"binary">> => <<"binary">>}), mixed_map_type()),
+    #{atom := atom,
+      binary := <<"binary">>} = totype(return_value([{atom, atom}, {<<"binary">>, <<"binary">>}]), mixed_map_type()),
+    ok = ?CONVERT_ERROR([{<<"binary">>, binary}], mixed_map_type()).
+
 %%=====================================
 %% Tuple
 %%=====================================
@@ -644,12 +661,82 @@ optional_map_conversion_test() ->
 -type empty_tuple_type() :: {}.
 -type typed_tuple_type() :: {atom(), any()}.
 
+tuple_validation_test() ->
+    true  = istype(return_value({}), tuple()),
+    true  = istype(return_value({}), {}),
+    true  = istype(return_value({}), empty_tuple_type()),
+    false = istype(return_value({}), typed_tuple_type()),
+
+    true  = istype(return_value({atom, 1}), tuple()),
+    false = istype(return_value({atom, 1}), {}),
+    false = istype(return_value({atom, 1}), empty_tuple_type()),
+    true  = istype(return_value({atom, 1}), typed_tuple_type()),
+    false = istype(return_value({1, atom}), typed_tuple_type()).
+
+tuple_conversion_test() ->
+    {atom, <<"binary">>, 1} = totype(return_value({atom, <<"binary">>, 1}), tuple()),
+    {atom, <<"binary">>, 1} = totype(return_value([atom, <<"binary">>, 1]), tuple()),
+    ok = ?CONVERT_ERROR(atom, tuple()),
+
+    {} = totype(return_value({}), empty_tuple_type()),
+    {} = totype(return_value([]), empty_tuple_type()),
+    ok = ?CONVERT_ERROR(atom, empty_tuple_type()),
+
+    {atom, 1} = totype(return_value({atom, 1}), typed_tuple_type()),
+    {atom, 1} = totype(return_value({<<"atom">>, 1}), typed_tuple_type()),
+    {atom, 1} = totype(return_value([atom, 1]), typed_tuple_type()),
+    {atom, 1} = totype(return_value([<<"atom">>, 1]), typed_tuple_type()),
+    ok = ?CONVERT_ERROR(atom, typed_tuple_type()).
+
 %%=====================================
 %% Union
 %%=====================================
 %% @doc Union :: Type1 | Type2
 %% @end
--type union_type() :: atom() | integer().
+-type union_a_type() :: atom() | integer().
+-type union_b_type() :: integer() | atom().
+-type union_c_type() :: atom | <<_:_*1>>.
+
+union_validation_test() ->
+    true = istype(return_value(atom), union_a_type()),
+    true = istype(return_value(also), union_a_type()),
+    true = istype(return_value(0), union_a_type()),
+    true = istype(return_value(1), union_a_type()),
+    false = istype(return_value(<<"binary">>), union_a_type()),
+
+    true = istype(return_value(atom), union_b_type()),
+    true = istype(return_value(also), union_b_type()),
+    true = istype(return_value(0), union_b_type()),
+    true = istype(return_value(1), union_b_type()),
+    false = istype(return_value(<<"binary">>), union_b_type()),
+
+    true = istype(return_value(atom), union_c_type()),
+    false = istype(return_value(also), union_c_type()),
+    false = istype(return_value(0), union_c_type()),
+    true = istype(return_value(<<"binary">>), union_c_type()),
+    true = istype(return_value(<<"binary also">>), union_c_type()).
+
+union_conversion_test() ->
+    atom = totype(return_value(atom), union_a_type()),
+    atom = totype(return_value(<<"atom">>), union_a_type()),
+    also = totype(return_value("also"), union_a_type()),
+    '1.0' = totype(return_value(<<"1.0">>), union_a_type()),
+    '1' = totype(return_value("1"), union_a_type()),
+    ok = ?CONVERT_ERROR({}, union_a_type()),
+
+    atom = totype(return_value(atom), union_b_type()),
+    atom = totype(return_value(<<"atom">>), union_b_type()),
+    also = totype(return_value("also"), union_b_type()),
+    1 = totype(return_value(<<"1.0">>), union_b_type()),
+    1 = totype(return_value("1"), union_b_type()),
+    ok = ?CONVERT_ERROR({}, union_b_type()),
+
+    atom = totype(return_value(atom), union_c_type()),
+    atom = totype(return_value(<<"atom">>), union_c_type()),
+    <<"also">> = totype(return_value("also"), union_c_type()),
+    <<"1.0">> = totype(return_value(<<"1.0">>), union_c_type()),
+    <<"1">> = totype(return_value("1"), union_c_type()),
+    ok = ?CONVERT_ERROR({}, union_c_type()).
 
 %%=========================================================
 %% Predefined Aliases
@@ -798,19 +885,56 @@ number_conversion_test() ->
 %%=====================================
 %% @doc list() :: [any()]
 %% @end
--type list_type() :: list().
+-type alias_list_type() :: list().
+list_any_validation_test() ->
+    true = istype(return_value([]), list()),
+    true = istype(return_value([]), alias_list_type()),
+    true = istype(return_value([atom]), list()),
+    true = istype(return_value([<<"binary">>]), list()),
+    false = istype(return_value({}), list()).
+
+list_any_conversion_test() ->
+    "atom" = totype(return_value(atom), list()),
+    "binary" = totype(return_value(<<"binary">>), list()),
+    "1" = totype(return_value(1), list()),
+    [] = totype(return_value([]), list()),
+    [] = totype(return_value({}), list()),
+    [] = totype(return_value(#{}), list()),
+    [1] = totype(return_value([1]), list()),
+    [1] = totype(return_value({1}), list()),
+    [] = totype(return_value({}), list()).
 
 %%=====================================
 %% maybe_improper_list()
 %%=====================================
 %% @doc maybe_improper_list() :: maybe_improper_list(any(), any())
 %% @end
+-type alias_maybe_improper_list_type() :: maybe_improper_list().
+maybe_improper_list_validation_test() ->
+    true = istype(return_value([]), maybe_improper_list()),
+    true = istype(return_value([]), alias_maybe_improper_list_type()),
+    true = istype(return_value([atom | atom]), maybe_improper_list()),
+    true = istype(return_value([atom, atom]), maybe_improper_list()),
+    false = istype(return_value(atom), maybe_improper_list()).
+
+maybe_improper_list_conversion_test() ->
+    [] = totype(return_value({}), maybe_improper_list()),
+    [atom] = totype(return_value({atom}), maybe_improper_list()).
 
 %%=====================================
 %% nonempty_list()
 %%=====================================
 %% @doc nonempty_list() :: nonempty_list(any())
 %% @end
+nonempty_list_validation_test() ->
+    false = istype(return_value([]), nonempty_list()),
+    false = istype(return_value([atom | atom]), nonempty_list()),
+    true = istype(return_value([atom, atom]), nonempty_list()),
+    false = istype(return_value(atom), nonempty_list()).
+
+nonempty_list_conversion_test() ->
+    [atom] = totype(return_value({atom}), nonempty_list()),
+    ok = ?CONVERT_ERROR({}, nonempty_list()).
 
 %%=====================================
 %% string()
@@ -899,6 +1023,23 @@ nonempty_string_conversion_test() ->
 %%=====================================
 %% @doc iodata() :: iolist() | binary()
 %% @end
+-type iodata_type() :: iodata().
+iodata_validation_test() ->
+    true = istype(return_value([1, <<"binary">>, [1 | <<"binary">>] | <<"binary">>]), iodata()),
+    true = istype(return_value([1, <<"binary">>, [1 | <<"binary">>] | <<"binary">>]), iodata_type()),
+    true = istype(return_value([]), iodata()),
+    true = istype(return_value(<<"binary">>), iodata()),
+    false = istype(return_value(1), iodata()).
+
+iodata_conversion_test() ->
+    [1, <<"binary">>] = totype(return_value([1, <<"binary">>]), iodata()),
+    [1, <<"binary">>] = totype(return_value([1, <<"binary">>]), iodata_type()),
+    [1 | <<"binary">>] = totype(return_value([1 | <<"binary">>]), iodata()),
+    [1, <<"binary">>] = totype(return_value([1, binary]), iodata()),
+    [1, <<"binary">>] = totype(return_value({1, binary}), iodata()),
+    [1, [1, <<"binary">>]] = totype(return_value({1, {1, binary}}), iodata()),
+    "1" = totype(return_value(1), iodata()),
+    "1.0" = totype(return_value(1.0), iodata()).
 
 %%=====================================
 %% iolist()
@@ -906,12 +1047,37 @@ nonempty_string_conversion_test() ->
 %% @doc iolist() :: maybe_improper_list(byte() | binary() | iolist(),
 %%                                      binary() | [])
 %% @end
+-type iolist_type() :: iolist().
+iolist_validation_test() ->
+    true = istype(return_value([1, <<"binary">>, [1 | <<"binary">>] | <<"binary">>]), iolist()),
+    true = istype(return_value([1, <<"binary">>, [1 | <<"binary">>] | <<"binary">>]), iolist_type()),
+    true = istype(return_value([]), iolist()),
+    false = istype(return_value(1), iolist()).
+
+iolist_conversion_test() ->
+    [1, <<"binary">>] = totype(return_value([1, <<"binary">>]), iolist()),
+    [1, <<"binary">>] = totype(return_value([1, <<"binary">>]), iolist_type()),
+    [1 | <<"binary">>] = totype(return_value([1 | <<"binary">>]), iolist()),
+    [1, <<"binary">>] = totype(return_value([1, binary]), iolist()),
+    [1, <<"binary">>] = totype(return_value({1, binary}), iolist()),
+    [1, [1, <<"binary">>]] = totype(return_value({1, {1, binary}}), iolist()).
 
 %%=====================================
 %% function()
 %%=====================================
 %% @doc function() :: fun()
 %% @end
+-type function_type() :: function().
+function_validation_test() ->
+    false = istype(return_value(atom), function_type()),
+
+    true = istype(return_value(fun return_value/1), function_type()),
+    true = istype(return_value(fun() -> ok end), function_type()).
+
+function_conversion_test() ->
+    Fun = fun() -> ok end,
+    ok = ?CONVERT_ERROR(atom, function_type()),
+    ok = ?CONVERT_ERROR(Fun, function_type()).
 
 %%=====================================
 %% module()
@@ -1149,11 +1315,29 @@ neg_integer_conversion_test() ->
 %%=====================================
 %% @doc nonempty_maybe_improper_list() :: nonempty_maybe_improper_list(any(), any())
 %% @end
+-type nonempty_maybe_improper_list_type() :: nonempty_maybe_improper_list().
+nonempty_maybe_improper_list_validation_test() ->
+    true = istype(return_value([1]), nonempty_maybe_improper_list()),
+    true = istype(return_value([1]), nonempty_maybe_improper_list_type()),
+    true = istype(return_value([1 | atom]), nonempty_maybe_improper_list()),
+    false = istype(return_value([]), nonempty_maybe_improper_list()).
+
+nonempty_maybe_improper_list_conversion_test() ->
+    [1, atom] = totype(return_value({1, atom}), nonempty_maybe_improper_list()),
+    [1, atom] = totype(return_value({1, atom}), nonempty_maybe_improper_list_type()),
+
+    [1, atom] = totype(return_value([1, atom]), nonempty_maybe_improper_list()),
+    [1 | atom] = totype(return_value([1 | atom]), nonempty_maybe_improper_list()),
+
+    ok = ?CONVERT_ERROR([], nonempty_maybe_improper_list()),
+    ok = ?CONVERT_ERROR({}, nonempty_maybe_improper_list()).
 
 %%=====================================
 %% nonempty_improper_list(Type1, Type2)
 %%=====================================
 %% @doc nonempty_improper_list(Type1, Type2)
+%%
+%%      Handled by List above.
 %% @end
 
 %%=====================================
@@ -1161,6 +1345,25 @@ neg_integer_conversion_test() ->
 %%=====================================
 %% @doc nonempty_maybe_improper_list(Type1, Type2)
 %% @end
+-type typed_nonempty_maybe_improper_list_type() :: nonempty_maybe_improper_list(integer(), atom() | []).
+typed_nonempty_maybe_improper_list_validation_test() ->
+    true = istype(return_value([1]), typed_nonempty_maybe_improper_list_type()),
+    true = istype(return_value([1]), typed_nonempty_maybe_improper_list_type()),
+    true = istype(return_value([1 | atom]), typed_nonempty_maybe_improper_list_type()),
+    false = istype(return_value([1 | 1]), typed_nonempty_maybe_improper_list_type()),
+    false = istype(return_value([]), typed_nonempty_maybe_improper_list_type()).
+
+typed_nonempty_maybe_improper_list_conversion_test() ->
+    [1, 1] = totype(return_value({1, 1}), typed_nonempty_maybe_improper_list_type()),
+    [1, 1] = totype(return_value([1, 1]), typed_nonempty_maybe_improper_list_type()),
+    [1, 1] = totype(return_value([<<"1">>, "1"]), typed_nonempty_maybe_improper_list_type()),
+
+    [1 | atom] = totype(return_value([<<"1">> | <<"atom">>]), typed_nonempty_maybe_improper_list_type()),
+
+    ok = ?CONVERT_ERROR([1 | 1], typed_nonempty_maybe_improper_list_type()),
+    ok = ?CONVERT_ERROR([atom | atom], typed_nonempty_maybe_improper_list_type()),
+    ok = ?CONVERT_ERROR([], typed_nonempty_maybe_improper_list_type()),
+    ok = ?CONVERT_ERROR({}, typed_nonempty_maybe_improper_list_type()).
 
 %%=====================================
 %% Record

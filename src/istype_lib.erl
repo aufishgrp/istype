@@ -329,8 +329,6 @@ do_istype_map(Value, {type, map, MapFields}, Types, Records) ->
     %% Get the field types that are required
     Required0 = map_fields_required(MapFields),
 
-    io:format("Fields ~p\nRequired ~p\n", [MapFields, Required0]),
-
     %% Generate a new map of converted types while reducing the set of required fields.
     Results = maps:fold(fun(K0, V0, {RequiredAcc, true}) ->
                                 case do_istype_map_assoc(K0, V0, MapFields, Types, Records) of
@@ -397,13 +395,13 @@ totype(Value, Type) ->
     totype(Value, Type, #{}, #{}).
 
 totype(Value, Type, Types, Records) ->
-   try
+    try
         do_totype(Value, Type, Types, Records)
     catch
         error:{conversion_error, V1, T1, Reason} ->
             conversion_error(Value, Type, {V1, T1, Reason});
         Class:Error ->
-            Reason = {Class, Error},
+            Reason = {Class, Error, erlang:get_stacktrace()},
             conversion_error(Value, Type, Reason)
     end.
 
@@ -594,6 +592,13 @@ do_totype(Value, {type, list, any}, _, _) when is_map(Value) ->
     maps:to_list(Value);
 do_totype(Value, {type, list, any}, _, _) when is_function(Value) ->
     erlang:fun_to_list(Value);
+do_totype(Value, {type, list, {Empty, _, _}} = Type, _, _) when is_tuple(Value) andalso 0 =:= size(Value) ->
+    case Empty of
+        maybe_empty ->
+            [];
+        nonempty ->
+            conversion_error(Value, Type, empty_tuple)
+    end;
 do_totype(Value, {type, list, any}, Types, Records) when is_tuple(Value) ->
     case maps:get(element(1, Value), Records, undefined) of
         {Arity, Fields, _} when size(Value) =:= Arity ->
@@ -607,10 +612,11 @@ do_totype(Value, {type, list, {Empty, ValueType, TerminatorType}} = Type, Types,
         AsList = do_totype(Value, list, Types, Records),
         do_totype_list(AsList, Empty, ValueType, TerminatorType, Types, Records)
     catch
-        error:{istype_conversion, _, _} ->
-            conversion_error(Value, Type);
-        _:_ ->
-            error(error)
+        error:{istype_conversion, ErrorValue, ErrorType, ErrorReason} ->
+            conversion_error(Value, Type, {ErrorValue, ErrorType, ErrorReason});
+        Class:Error ->
+            Reason = {Class, Error, erlang:get_stacktrace()},
+            conversion_error(Value, Type, Reason)
     end;
 %%======================================
 %% Map
@@ -627,8 +633,11 @@ do_totype(Value, {type, map, any}, _, _) when is_list(Value) ->
     try
         maps:from_list(Value)
     catch
-        _:_ ->
-            conversion_error(Value, {type, map, any})
+        error:{istype_conversion, ErrorValue, ErrorType, ErrorReason} ->
+            conversion_error(Value, {type, map, any}, {ErrorValue, ErrorType, ErrorReason});
+        Class:Error ->
+            Reason = {Class, Error, erlang:get_stacktrace()},
+            conversion_error(Value, {type, map, any}, Reason)
     end;
 do_totype(Value, {type, map, any}, Types, Records) when is_tuple(Value) ->
     case maps:get(element(1, Value), Records, undefined) of
@@ -648,7 +657,7 @@ do_totype(Value, {type, map, _} = Type, Types, Records) ->
 do_totype(Value, {type, tuple, any}, _, _) when is_tuple(Value) ->
     Value;
 do_totype(Value, {type, tuple, any}, _, _) when is_list(Value) ->
-    tuple_to_list(Value);
+    list_to_tuple(Value);
 do_totype({}, {type, tuple, empty}, _, _) ->
     {};
 do_totype(<<>>, {type, tuple, empty}, _, _) ->
@@ -908,8 +917,11 @@ do_totype_literal(Value, {literal, Type, LiteralValue} = Literal, Types, Records
                 conversion_error(Value, Literal)
         end
     catch
+        error:{istype_conversion, ErrorValue, ErrorType, ErrorReason} ->
+            conversion_error(Value, Literal, {ErrorValue, ErrorType, ErrorReason});
         Class:Error ->
-            conversion_error(Value, Literal, {Class, Error})
+            Reason = {Class, Error, erlang:get_stacktrace()},
+            conversion_error(Value, Literal, Reason)
     end.
 
 %%==========================================================
@@ -1050,10 +1062,3 @@ conversion_error(Value, Type) ->
 
 conversion_error(Value, Type, Reason) ->
     error({istype_conversion, Value, Type, Reason}).
-
-
-
-
-
-
-

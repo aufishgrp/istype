@@ -31,6 +31,12 @@ do_transform({call, Line, {atom, _, istype}, [Value, Type]}, Types, Records) ->
     %% end
     X = optimize_istype(Line, Value, parse_type(Type), Types, Records),
     %io:format("~p\n", [X]),
+    %case Line of
+    %  _ when Line >= 650 andalso Line =< 700 ->
+    %    io:format("\nistype(~p, ~p) ->\n~p\n", [Value, Type, X]);
+    %  _ ->
+    %    ok
+    %end,
     X;
 do_transform({call, Line, {atom, _, totype}, [Value, Type0]}, Types, Records) ->
     %% try
@@ -73,7 +79,8 @@ do_transform({call, Line, {atom, _, totype}, [Value, Type0]}, Types, Records) ->
                   {atom, Line, error},
                   [{tuple, Line, [{atom, Line, istype_conversion},
                                   {atom, Line, Type},
-                                  Value]}]}]}],
+                                  Value,
+                                  {atom, Line, invalid_result}]}]}]}],
         []};
 do_transform({call, Line, {atom, _, asserttype}, Args}, Types, Records) ->
     %% true = istype(Value, type())
@@ -84,7 +91,7 @@ do_transform(Form, _, _) ->
     Form.
 
 handle_error(Class, Error, Stack) ->
-    io:format("Well this wasn't good...\n~p:~p\n~p\n", [Class, Error, Stack]).
+    erlang:Class({Class, Error, Stack}).
 
 %%====================================================================
 %% istype functions
@@ -886,17 +893,19 @@ parse_type({type, _, map, MapFields}) ->
 %%              | {call, _, {atom, _, tuple}, []} %% Any Tuple
 %%              | {type, _, tuple, []}            %% Empty Tuple
 %%              | {type, _, tuple, FieldTypes}    %% Typed Tuple
-%%
+%%              | {tuple, _, []}                  %% Empty tuple literal
 %%      TODO: Add literals
 %% @end
 parse_type({type, _, tuple, any}) ->
     {type, tuple, any};
-parse_type({call, _, tuple, []}) ->
+parse_type({call, _, {atom, _, tuple}, []}) ->
     {type, tuple, any};
 parse_type({type, _, tuple, []}) ->
     {type, tuple, empty};
 parse_type({type, _, tuple, FieldTypes}) ->
     {type, tuple, lists:map(fun parse_type/1, FieldTypes)};
+parse_type({tuple, _, []}) ->
+    {type, tuple, empty};
 %%======================================
 %% Union
 %%======================================
@@ -1001,8 +1010,12 @@ parse_type({type, Line, list, []}) ->
 %% @doc Expect :: {type, _, maybe_improper_list, []}
 %%              | {call, _, {atom, _, maybe_improper_list}, []}
 %%
-%%      Handled by List above.
+%%      Alias for maybe_improper_list(any(), any()).
+%%
+%%      Calls handled by the default call handler.
 %% @end
+parse_type({type, Line, maybe_improper_list, []}) ->
+    parse_type({type, Line, maybe_improper_list, [{type, Line, any, []}, {type, Line, any, []}]});
 %%======================================
 %% nonempty_list()
 %%======================================
