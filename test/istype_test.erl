@@ -1,4 +1,4 @@
--module(istype).
+-module(istype_test).
 
 %% API exports
 -export([return_value/1, to_src/0]).

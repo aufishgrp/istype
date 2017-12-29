@@ -1291,7 +1291,7 @@ parse_type({type, Line, record, [{atom, _, Record} | RecordFields0]} = R, Record
     {record, Record, RecordFields1};
 parse_type({record, Line, Record, RecordFields} = R, Records) ->
     io:format("Parsed Record ~p ~p\n", [Line, R]),
-    {record, Record, parse_literal_record_fields(Record, RecordFields, Records)};
+    {record, Record, parse_literal_record_fields(RecordFields, Records)};
 %%======================================
 %% Default call handler
 %%======================================
@@ -1357,7 +1357,7 @@ parse_record_field_type(_, Records) ->
 %% @doc A literal record value is given as a type. Get it's definition and
 %%      update it with any overrides given.
 %% @end
-parse_literal_record_fields(Record, RecordFields, Records) ->
+parse_literal_record_fields(RecordFields, Records) ->
     %% Fetch overrides
     OverrideFields = lists:map(fun parse_literal_record_field/1, RecordFields),
     Fun = fun(Type) ->
@@ -1426,7 +1426,7 @@ is_any(_, _) ->
 
 %% @doc Fetches a record spec with the overrides applied.
 %% @end
-override_record_spec(Overrides, Record, Types, Records) ->
+override_record_spec(Overrides, Record, _, Records) ->
     #{Record := {Arity, RecordFields, RecordTypes}} = Records,
     DefaultTypes = lists:zip(RecordFields, RecordTypes),
 
