@@ -1,7 +1,7 @@
 -module(istype).
 
 %% API exports
--export([return_value/1]).
+-export([return_value/1, to_src/0]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -27,6 +27,8 @@
                    e        :: atom() | binary()}).
 -record(record_b, {f :: #record_a{e :: binary()},
                    g :: atom() | integer()}).
+-record(record_c, {a = "atom" :: list(),
+                   e          :: atom() | binary()}).
 
 -export_type([any_type/0,
               none_type/0,
@@ -88,7 +90,14 @@
               neg_integer_type/0,
               record_a_type/0,
               typed_record_a_type/0,
-              record_b_type/0]).
+              record_b_type/0,
+              alias_maybe_improper_list_type/0,
+              iodata_type/0,
+              iolist_type/0,
+              function_type/0,
+              nonempty_maybe_improper_list_type/0,
+              typed_nonempty_maybe_improper_list_type/0,
+              typed_record_b_type/0]).
 
 %%=============================================================================
 %% General test functions
@@ -1371,3 +1380,43 @@ typed_nonempty_maybe_improper_list_conversion_test() ->
 -type record_a_type() :: #record_a{}.
 -type typed_record_a_type() :: #record_a{e :: binary()}.
 -type record_b_type() :: #record_b{}.
+-type typed_record_b_type() :: #record_b{f :: #record_a{e :: atom()}}.
+%-record(record_a, {a = atom :: atom(),
+%                   b = atom,
+%                   c        :: atom(),
+%                   d,
+%                   e        :: atom() | binary()}).
+%-record(record_b, {f :: #record_a{e :: binary()},
+%                   g :: atom() | integer()}).
+record_validation_test() ->
+    false = istype(return_value(atom), #record_a{}),
+    false = istype(return_value(atom), record_a_type()),
+    true = istype(return_value(#record_a{}), #record_a{}),
+    true = istype(return_value(#record_a{}), record_a_type()),
+
+    true = istype(return_value(#record_a{a = atom}), #record_a{a = atom}),
+    false = istype(return_value(#record_a{a = also}), #record_a{a = atom}),
+    true = istype(return_value(#record_a{a = also}), #record_a{a = atom()}),
+
+    false = istype(return_value(#record_a{c = <<"binary">>}), record_a_type()),
+
+    false = istype(return_value(#record_a{}), typed_record_a_type()),
+    true = istype(return_value(#record_a{e = <<"binary">>}), typed_record_a_type()),
+
+    false = istype(return_value(#record_a{}), #record_b{}),
+    false = istype(return_value(#record_a{}), record_b_type()),
+
+    false = istype(return_value(#record_b{}), #record_b{}),
+    false = istype(return_value(#record_b{}), record_b_type()),
+
+    true = istype(return_value(#record_b{f = #record_a{e = <<"binary">>}}), #record_b{}),
+    true = istype(return_value(#record_b{f = #record_a{e = <<"binary">>}}), record_b_type()),
+
+    true = istype(return_value(#record_b{f = #record_a{e = <<"binary">>}}), record_b_type()),
+    false = istype(return_value(#record_b{f = #record_a{e = atom}}), record_b_type()),
+
+    false = istype(return_value(#record_b{f = #record_a{e = <<"binary">>}}), typed_record_b_type()),
+    true = istype(return_value(#record_b{f = #record_a{e = atom}}), typed_record_b_type()).
+
+to_src() ->
+    file:write_file("output.erl", io_lib:format("~s\n", [forms:from_abstract(forms:read(istype))])).

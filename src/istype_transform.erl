@@ -7,8 +7,12 @@
 parse_transform(Forms, _Options) ->
     try
         Records = forms:reduce(fun get_records/2, #{}, Forms),
-        Types = forms:reduce(fun get_types/2,
-                             #{iolist => parse_type({type, 1, iolist, []})},
+
+        TypeFun = fun(Type, Acc) ->
+                      get_types(Type, Records, Acc)
+                  end,
+        Types = forms:reduce(TypeFun,
+                             #{iolist => parse_type({type, 1, iolist, []}, Records)},
                              Forms),
         forms:map(fun(Form) ->
                       do_transform(Form, Types, Records)
@@ -29,15 +33,7 @@ do_transform({call, Line, {atom, _, istype}, [Value, Type]}, Types, Records) ->
     %%     __IsType_1 = expression(),
     %%     is_integer(__IsType_1) orelse is_boolean(__IsType_1) ...
     %% end
-    X = optimize_istype(Line, Value, parse_type(Type), Types, Records),
-    %io:format("~p\n", [X]),
-    %case Line of
-    %  _ when Line >= 650 andalso Line =< 700 ->
-    %    io:format("\nistype(~p, ~p) ->\n~p\n", [Value, Type, X]);
-    %  _ ->
-    %    ok
-    %end,
-    X;
+    optimize_istype(Line, Value, parse_type(Type, Records), Types, Records);
 do_transform({call, Line, {atom, _, totype}, [Value, Type0]}, Types, Records) ->
     %% try
     %%     __IsType_1 = istype_lib:totype(Value, TypeInfo),
@@ -47,7 +43,7 @@ do_transform({call, Line, {atom, _, totype}, [Value, Type0]}, Types, Records) ->
     %%     error:{badmatch, false} ->
     %%         error({istype_conversion, type(), __IsType_1})
     %% end
-    {_, Type, _} = Type1 = parse_type(Type0),
+    {_, Type, _} = Type1 = parse_type(Type0, Records),
     Converted = get_var(Line),
     {'try', Line,
         [{match, Line,
@@ -554,23 +550,7 @@ istype(Line, Value, {type, number, []}, _, _) ->
 %%=====================================
 %% @doc Expect :: {record, Record, RecordInfo}
 %% @end
-istype(Line, Value, {literal, record, {Record, {_, FO, TO}}}, Types, Records) ->
-    #{Record := RecordInfo} = Records,
-    {Arity, Fields, FieldTypes} = RecordInfo,
-
-    Overrides = maps:from_list(lists:zip(FO, TO)),
-    OverriddenSpec = lists:map(fun({F, T}) ->
-                                   case maps:get(F, Overrides, undefined) of
-                                       undefined ->
-                                           {F, T};
-                                       OverrideType ->
-                                           {F, OverrideType}
-                                   end
-                               end,
-                               lists:zip(Fields, FieldTypes)),
-    {_, OverriddenFieldTypes} = lists:unzip(OverriddenSpec),
-    istype(Line, Value, {record, Record, {Arity, Fields, OverriddenFieldTypes}}, Types, Records);
-istype(Line, Value, {record, Record, RecordInfo}, Types, Records) ->
+istype(Line, Value, {record_spec, Record, RecordInfo}, Types, Records) ->
     {Arity, Fields, FieldTypes} = RecordInfo,
     RecordFields = lists:filter(fun({_, FieldType}) ->
                                     not is_any(FieldType, Types)
@@ -631,13 +611,13 @@ istype(Line, Value, {Class, Type, _}, Types, Records) when Class =:= type orelse
                        error({unknown_type, Type})
                end,
     istype(Line, Value, TypeSpec, Types, Records);
-istype(Line, Value, {record, Record, _}, Types, Records) ->
+istype(Line, Value, {record, Record, Overrides}, Types, Records) ->
+    io:format("++++++++++++++++\nIstype Record\nRecord: ~p\nOverrides: ~p\nRecords: ~p\n----------------\n", [Record, Overrides, Records]),
     RecordSpec = try
-                     #{Record := X} = Records,
-                     X
+                     {record_spec, Record, override_record_spec(Overrides, Record, Types, Records)}
                  catch
-                     _:_ ->
-                        error({unknown_record, Record})
+                     Class:Error ->
+                        error({Class, Error, erlang:get_stacktrace()})
                  end,
     istype(Line, Value, RecordSpec, Types, Records).
 
@@ -744,14 +724,13 @@ istype_record(Line, Value0, Record, [RecordFieldSpec | RecordFields], Types, Rec
 %%
 %%      The type and call cases can be handled by the default handler.
 %% @end
-parse_type({nil, _}) ->
+parse_type({nil, _}, _) ->
     {literal, nil, []};
 %%======================================
 %% Atom
 %%======================================
 %% atom()
 %%==================
-%% @doc Expect :: {type, _, atom, []}
 %%              | {call, _, {atom, _, atom}, []}
 %%
 %%      All cases can be handled by the default handler.
@@ -763,7 +742,7 @@ parse_type({nil, _}) ->
 %%
 %%      Erlang_Atoms need to be treated as literals.
 %% @end
-parse_type({atom, _, Atom}) ->
+parse_type({atom, _, Atom}, _) ->
     {literal, atom, Atom};
 %%======================================
 %% Bitstring
@@ -775,9 +754,9 @@ parse_type({atom, _, Atom}) ->
 %%      They need to be treated as literal values and should only
 %%      be found within type specs.
 %% @end
-parse_type({type, _, binary, [{integer, _, M}, {integer, _, N}]}) ->
+parse_type({type, _, binary, [{integer, _, M}, {integer, _, N}]}, _) ->
     {type, bitstring, {M, N}};
-  parse_type({bin, _, []}) ->
+parse_type({bin, _, []}, _) ->
     {type, bitstring, {0, 0}};
 %%======================================
 %% float()
@@ -798,10 +777,13 @@ parse_type({type, _, binary, [{integer, _, M}, {integer, _, N}]}) ->
 %%
 %%      The forms for fun() will be handled by the default handler.
 %% @end
-parse_type({type, _, 'fun', [{type, _, any}, ReturnType]}) ->
-    {type, 'fun', [any, parse_type(ReturnType)]};
-parse_type({type, _, 'fun', [{type, _, product, ParameterTypes}, ReturnType]}) ->
-    {type, 'fun', [lists:map(fun parse_type/1, ParameterTypes), parse_type(ReturnType)]};
+parse_type({type, _, 'fun', [{type, _, any}, ReturnType]}, Records) ->
+    {type, 'fun', [any, parse_type(ReturnType, Records)]};
+parse_type({type, _, 'fun', [{type, _, product, ParameterTypes}, ReturnType]}, Records) ->
+    Fun = fun(Type) ->
+              parse_type(Type, Records)
+          end,
+    {type, 'fun', [lists:map(Fun, ParameterTypes), parse_type(ReturnType, Records)]};
 %%======================================
 %% Integer
 %%======================================
@@ -819,9 +801,9 @@ parse_type({type, _, 'fun', [{type, _, product, ParameterTypes}, ReturnType]}) -
 %%
 %%      Erlang_Integers need to be treated as literals.
 %% @end
-parse_type({integer, _, Integer}) ->
+parse_type({integer, _, Integer}, _) ->
     {literal, integer, Integer};
-parse_type({op, _, '-', {integer, _, Integer}}) ->
+parse_type({op, _, '-', {integer, _, Integer}}, _) ->
     {literal, integer, -1 * Integer};
 %%==================
 %% Erlang_Integer..Erlang_Integer
@@ -830,9 +812,9 @@ parse_type({op, _, '-', {integer, _, Integer}}) ->
 %%
 %%      Ranges of Erlang_Integers.
 %% @end
-parse_type({type, _, range, [Low, High]}) ->
-    {literal, _, LowerBound} = parse_type(Low),
-    {literal, _, UpperBound} = parse_type(High),
+parse_type({type, _, range, [Low, High]}, Records) ->
+    {literal, _, LowerBound} = parse_type(Low, Records),
+    {literal, _, UpperBound} = parse_type(High, Records),
     {type, range, {LowerBound, UpperBound}};
 %%======================================
 %% List
@@ -852,16 +834,22 @@ parse_type({type, _, range, [Low, High]}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, _, list, [{type, any, []}]}) ->
+parse_type({type, _, list, [{type, any, []}]}, _) ->
     {type, list, any};
-parse_type({type, _, list, [Type]}) ->
-    {type, list, {maybe_empty, parse_type(Type), parse_type({type, 1, nil, []})}};
-parse_type({type, _, maybe_improper_list, [_, _] = Types}) ->
-    {type, list, list_to_tuple([maybe_empty | lists:map(fun parse_type/1, Types)])};
-parse_type({type, _, nonempty_improper_list, Types}) ->
-    {type, list, list_to_tuple([nonempty | lists:map(fun parse_type/1, Types)])};
-parse_type({type, _, nonempty_list, [Type]}) ->
-    {type, list, {nonempty, parse_type(Type), parse_type({type, 1, nil, []})}};
+parse_type({type, _, list, [Type]}, Records) ->
+    {type, list, {maybe_empty, parse_type(Type, Records), parse_type({type, 1, nil, []}, Records)}};
+parse_type({type, _, maybe_improper_list, [_, _] = Types}, Records) ->
+    Fun = fun(Type) ->
+              parse_type(Type, Records)
+          end,
+    {type, list, list_to_tuple([maybe_empty | lists:map(Fun, Types)])};
+parse_type({type, _, nonempty_improper_list, Types}, Records) ->
+    Fun = fun(Type) ->
+              parse_type(Type, Records)
+          end,
+    {type, list, list_to_tuple([nonempty | lists:map(Fun, Types)])};
+parse_type({type, _, nonempty_list, [Type]}, Records) ->
+    {type, list, {nonempty, parse_type(Type, Records), parse_type({type, 1, nil, []}, Records)}};
 %%======================================
 %% Map
 %%======================================
@@ -876,16 +864,19 @@ parse_type({type, _, nonempty_list, [Type]}) ->
 %%
 %%      A call to map() is treated as any map.
 %% @end
-parse_type({map, _, _} = Map) ->
+parse_type({map, _, _} = Map, _) ->
     {literal, map, erl_parse:normalise(Map)};
-parse_type({type, _, map, any}) ->
+parse_type({type, _, map, any}, _) ->
     {type, map, any};
-parse_type({call, _, {atom, _, map}, []}) ->
+parse_type({call, _, {atom, _, map}, []}, _) ->
     {type, map, any};
-parse_type({type, _, map, []}) ->
+parse_type({type, _, map, []}, _) ->
     {type, map, empty};
-parse_type({type, _, map, MapFields}) ->
-    {type, map, lists:map(fun parse_map_field/1, MapFields)};
+parse_type({type, _, map, MapFields}, Records) ->
+    Fun = fun(Type) ->
+              parse_map_field(Type, Records)
+          end,
+    {type, map, lists:map(Fun, MapFields)};
 %%======================================
 %% Tuple
 %%======================================
@@ -896,23 +887,29 @@ parse_type({type, _, map, MapFields}) ->
 %%              | {tuple, _, []}                  %% Empty tuple literal
 %%      TODO: Add literals
 %% @end
-parse_type({type, _, tuple, any}) ->
+parse_type({type, _, tuple, any}, _) ->
     {type, tuple, any};
-parse_type({call, _, {atom, _, tuple}, []}) ->
+parse_type({call, _, {atom, _, tuple}, []}, _) ->
     {type, tuple, any};
-parse_type({type, _, tuple, []}) ->
+parse_type({type, _, tuple, []}, _) ->
     {type, tuple, empty};
-parse_type({type, _, tuple, FieldTypes}) ->
-    {type, tuple, lists:map(fun parse_type/1, FieldTypes)};
-parse_type({tuple, _, []}) ->
+parse_type({type, _, tuple, FieldTypes}, Records) ->
+    Fun = fun(Type) ->
+              parse_type(Type, Records)
+          end,
+    {type, tuple, lists:map(Fun, FieldTypes)};
+parse_type({tuple, _, []}, _) ->
     {type, tuple, empty};
 %%======================================
 %% Union
 %%======================================
 %% @doc Expect :: {type, _, union, Types} %% Any Tuple
 %% @end
-parse_type({type, _, union, Types}) ->
-    {type, union, lists:map(fun parse_type/1, Types)};
+parse_type({type, _, union, Types}, Records) ->
+    Fun = fun(Type) ->
+              parse_type(Type, Records)
+          end,
+    {type, union, lists:map(Fun, Types)};
 %%======================================
 %% term()
 %%======================================
@@ -922,8 +919,8 @@ parse_type({type, _, union, Types}) ->
 %%
 %%      Calls are handled by the default call handler.
 %% @end
-parse_type({type, Line, term, []}) ->
-    parse_type({type, Line, any, []});
+parse_type({type, Line, term, []}, Records) ->
+    parse_type({type, Line, any, []}, Records);
 %%======================================
 %% binary()
 %%======================================
@@ -961,9 +958,10 @@ parse_type({type, Line, term, []}) ->
 %%
 %%      Calls are handled by the default call handler.
 %% @end
-parse_type({type, Line, byte, []}) ->
+parse_type({type, Line, byte, []}, Records) ->
     parse_type({type, Line, range, [{integer, Line, 0},
-                                     {integer, Line, 255}]});
+                                     {integer, Line, 255}]},
+               Records);
 %%======================================
 %% char()
 %%======================================
@@ -974,9 +972,10 @@ parse_type({type, Line, byte, []}) ->
 %%
 %%      Calls are handled by the default call handler.
 %% @end
-parse_type({type, Line, char, []}) ->
+parse_type({type, Line, char, []}, Records) ->
     parse_type({type, Line, range, [{integer, Line, 0},
-                                     {integer, Line, 16#10ffff}]});
+                                     {integer, Line, 16#10ffff}]},
+               Records);
 %%======================================
 %% nil()
 %%======================================
@@ -1002,8 +1001,8 @@ parse_type({type, Line, char, []}) ->
 %%
 %%      Calls handled by List above.
 %% @end
-parse_type({type, Line, list, []}) ->
-    parse_type({type, Line, list, [{type, Line, any, []}]});
+parse_type({type, Line, list, []}, Records) ->
+    parse_type({type, Line, list, [{type, Line, any, []}]}, Records);
 %%======================================
 %% maybe_improper_list()
 %%======================================
@@ -1014,8 +1013,8 @@ parse_type({type, Line, list, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, maybe_improper_list, []}) ->
-    parse_type({type, Line, maybe_improper_list, [{type, Line, any, []}, {type, Line, any, []}]});
+parse_type({type, Line, maybe_improper_list, []}, Records) ->
+    parse_type({type, Line, maybe_improper_list, [{type, Line, any, []}, {type, Line, any, []}]}, Records);
 %%======================================
 %% nonempty_list()
 %%======================================
@@ -1026,8 +1025,8 @@ parse_type({type, Line, maybe_improper_list, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, nonempty_list, []}) ->
-    parse_type({type, Line, nonempty_list, [{type, Line, any, []}]});
+parse_type({type, Line, nonempty_list, []}, Records) ->
+    parse_type({type, Line, nonempty_list, [{type, Line, any, []}]}, Records);
 %%======================================
 %% string()
 %%======================================
@@ -1038,8 +1037,8 @@ parse_type({type, Line, nonempty_list, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, string, []}) ->
-    parse_type({type, Line, list, [{type, Line, char, []}]});
+parse_type({type, Line, string, []}, Records) ->
+    parse_type({type, Line, list, [{type, Line, char, []}]}, Records);
 %%======================================
 %% nonempty_string()
 %%======================================
@@ -1050,8 +1049,8 @@ parse_type({type, Line, string, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, nonempty_string, []}) ->
-    parse_type({type, Line, nonempty_list, [{type, Line, char, []}]});
+parse_type({type, Line, nonempty_string, []}, Records) ->
+    parse_type({type, Line, nonempty_list, [{type, Line, char, []}]}, Records);
 %%======================================
 %% iodata()
 %%======================================
@@ -1062,9 +1061,10 @@ parse_type({type, Line, nonempty_string, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, iodata, []}) ->
+parse_type({type, Line, iodata, []}, Records) ->
     parse_type({type, Line, union, [{type, Line, iolist, []},
-                                    {type, Line, binary, []}]});
+                                    {type, Line, binary, []}]},
+               Records);
 %%======================================
 %% iolist()
 %%======================================
@@ -1081,14 +1081,14 @@ parse_type({type, Line, iodata, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, iolist, []}) ->
+parse_type({type, Line, iolist, []}, Records) ->
     Type1 = {type, Line, union, [{type, Line, byte, []},
                                  {type, Line, binary, []},
                                  {type, iolist, []}]},
     Type2 = {type, Line, union, [{type, Line, binary, []},
                                  {type, Line, nil, []}]},
-    parse_type({type, Line, maybe_improper_list, [Type1, Type2]});
-parse_type({type, iolist, []} = Iolist) ->
+    parse_type({type, Line, maybe_improper_list, [Type1, Type2]}, Records);
+parse_type({type, iolist, []} = Iolist, _) ->
     Iolist;
 %%======================================
 %% function()
@@ -1099,10 +1099,10 @@ parse_type({type, iolist, []} = Iolist) ->
 %%      Alias for fun().
 %%      All cases can be handled by the default handler.
 %% @end
-parse_type({type, Line, function, []}) ->
-    parse_type({type, Line, 'fun', []});
-parse_type({call, Line, function, []}) ->
-    parse_type({call, Line, 'fun', []});
+parse_type({type, Line, function, []}, Records) ->
+    parse_type({type, Line, 'fun', []}, Records);
+parse_type({call, Line, function, []}, Records) ->
+    parse_type({call, Line, 'fun', []}, Records);
 %%======================================
 %% module()
 %%======================================
@@ -1113,8 +1113,8 @@ parse_type({call, Line, function, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, module, []}) ->
-    parse_type({type, Line, atom, []});
+parse_type({type, Line, module, []}, Records) ->
+    parse_type({type, Line, atom, []}, Records);
 %%======================================
 %% mfa()
 %%======================================
@@ -1125,10 +1125,11 @@ parse_type({type, Line, module, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, mfa, []}) ->
+parse_type({type, Line, mfa, []}, Records) ->
     parse_type({type, Line, tuple, [{type, Line, module, []},
                                     {type, Line, atom, []},
-                                    {type, Line, arity, []}]});
+                                    {type, Line, arity, []}]},
+               Records);
 %%======================================
 %% arity()
 %%======================================
@@ -1139,9 +1140,10 @@ parse_type({type, Line, mfa, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, arity, []}) ->
+parse_type({type, Line, arity, []}, Records) ->
     parse_type({type, Line, range, [{integer, Line, 0},
-                                    {integer, Line, 255}]});
+                                    {integer, Line, 255}]},
+               Records);
 %%======================================
 %% identifier()
 %%======================================
@@ -1152,10 +1154,11 @@ parse_type({type, Line, arity, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, identifier, []}) ->
+parse_type({type, Line, identifier, []}, Records) ->
     parse_type({type, Line, union, [{type, Line, pid, []},
                                     {type, Line, port, []},
-                                    {type, Line, reference, []}]});
+                                    {type, Line, reference, []}]},
+               Records);
 %%======================================
 %% node()
 %%======================================
@@ -1166,8 +1169,8 @@ parse_type({type, Line, identifier, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, node, []}) ->
-    parse_type({type, Line, atom, []});
+parse_type({type, Line, node, []}, Records) ->
+    parse_type({type, Line, atom, []}, Records);
 %%======================================
 %% timeout()
 %%======================================
@@ -1178,9 +1181,10 @@ parse_type({type, Line, node, []}) ->
 %%
 %%      Calls handled by the deafault call handler.
 %% @end
-parse_type({type, Line, timeout, []}) ->
+parse_type({type, Line, timeout, []}, Records) ->
     parse_type({type, Line, union, [{atom, Line, 'infinity'},
-                                    {type, Line, non_neg_integer, []}]});
+                                    {type, Line, non_neg_integer, []}]},
+               Records);
 %%======================================
 %% no_return()
 %%======================================
@@ -1191,8 +1195,8 @@ parse_type({type, Line, timeout, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, no_return, []}) ->
-    parse_type({type, Line, none, []});
+parse_type({type, Line, no_return, []}, Records) ->
+    parse_type({type, Line, none, []}, Records);
 %%======================================
 %% non_neg_integer()
 %%======================================
@@ -1203,9 +1207,10 @@ parse_type({type, Line, no_return, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, non_neg_integer, []}) ->
+parse_type({type, Line, non_neg_integer, []}, Records) ->
     parse_type({type, Line, range, [{integer, Line, 0},
-                                     {atom, Line, undefined}]});
+                                     {atom, Line, undefined}]},
+               Records);
 %%======================================
 %% pos_integer()
 %%======================================
@@ -1216,9 +1221,10 @@ parse_type({type, Line, non_neg_integer, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, pos_integer, []}) ->
+parse_type({type, Line, pos_integer, []}, Records) ->
     parse_type({type, Line, range, [{integer, Line, 1},
-                                     {atom, Line, undefined}]});
+                                     {atom, Line, undefined}]},
+               Records);
 %%======================================
 %% neg_integer()
 %%======================================
@@ -1229,9 +1235,10 @@ parse_type({type, Line, pos_integer, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, neg_integer, []}) ->
+parse_type({type, Line, neg_integer, []}, Records) ->
     parse_type({type, Line, range, [{atom, Line, undefined},
-                                     {integer, Line, -1}]});
+                                     {integer, Line, -1}]},
+               Records);
 %%======================================
 %% nonempty_maybe_improper_list()
 %%======================================
@@ -1242,9 +1249,10 @@ parse_type({type, Line, neg_integer, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, nonempty_maybe_improper_list, []}) ->
+parse_type({type, Line, nonempty_maybe_improper_list, []}, Records) ->
     parse_type({type, Line, nonempty_maybe_improper_list, [{type, Line, any, []},
-                                                           {type, Line, any, []}]});
+                                                           {type, Line, any, []}]},
+               Records);
 %%======================================
 %% nonempty_improper_list()
 %%======================================
@@ -1263,51 +1271,69 @@ parse_type({type, Line, nonempty_maybe_improper_list, []}) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, _, nonempty_maybe_improper_list, Types}) ->
-    {type, list, list_to_tuple([nonempty | lists:map(fun parse_type/1, Types)])};
+parse_type({type, _, nonempty_maybe_improper_list, Types}, Records) ->
+    Fun = fun(Type) ->
+              parse_type(Type, Records)
+          end,
+    {type, list, list_to_tuple([nonempty | lists:map(Fun, Types)])};
 %%======================================
 %% Record
 %%======================================
 %% @doc Expect :: {type, _, record, [Record | FieldOverrides]}
 %%              | {record, _, Record, FieldOverrides}
 %% @end
-parse_type({type, _, record, [{atom, _, Record} | RecordFields0]}) ->
+parse_type({type, Line, record, [{atom, _, Record} | RecordFields0]} = R, Records) ->
+    io:format("Parsed Record ~p ~p\n", [Line, R]),
     RecordFields1 = lists:map(fun({type, _, field_type, [{atom, _, Field}, FieldType]}) ->
-                                  {Field, parse_type(FieldType)}
+                                  {Field, parse_type(FieldType, Records)}
                               end,
                               RecordFields0),
     {record, Record, RecordFields1};
-parse_type({record, _, Record, RecordFields}) ->
-    {literal, record, {Record, parse_record_fields(RecordFields)}};
+parse_type({record, Line, Record, RecordFields} = R, Records) ->
+    io:format("Parsed Record ~p ~p\n", [Line, R]),
+    {record, Record, parse_literal_record_fields(Record, RecordFields, Records)};
 %%======================================
 %% Default call handler
 %%======================================
-parse_type({call, Line, {atom, _, Type}, TypeArgs}) ->
-    parse_type({type, Line, Type, TypeArgs});
+parse_type({call, Line, {atom, _, Type}, TypeArgs}, Records) ->
+    parse_type({type, Line, Type, TypeArgs}, Records);
 %%======================================
 %% Default handler
 %%======================================
-parse_type({Class, _, Type, TypeArgs}) when Class =:= type orelse
-                                            Class =:= user_type ->
-    {type, Type, lists:map(fun parse_type/1, TypeArgs)};
-parse_type(Type) ->
+parse_type({Class, _, Type, TypeArgs}, Records) when Class =:= type orelse
+                                                     Class =:= user_type ->
+    Fun = fun(TypeArg) ->
+              parse_type(TypeArg, Records)
+          end,
+    {type, Type, lists:map(Fun, TypeArgs)};
+parse_type(Type, _) ->
     error({parse_type, Type}).
 
 %%=========================================================
 %% parse_record
 %%=========================================================
-parse_map_field({type, _, map_field_exact, Types}) ->
-    list_to_tuple([require | lists:map(fun parse_type/1, Types)]);
-parse_map_field({type, _, map_field_assoc, Types}) ->
-    list_to_tuple([optional | lists:map(fun parse_type/1, Types)]).
+parse_map_field({type, _, map_field_exact, Types}, Records) ->
+    Fun = fun(Type) ->
+              parse_type(Type, Records)
+          end,
+    list_to_tuple([require | lists:map(Fun, Types)]);
+parse_map_field({type, _, map_field_assoc, Types}, Records) ->
+    Fun = fun(Type) ->
+              parse_type(Type, Records)
+          end,
+    list_to_tuple([optional | lists:map(Fun, Types)]).
 
 %%=========================================================
 %% parse_record
 %%=========================================================
-parse_record_fields(RecordFields) ->
+parse_record_fields(RecordFields, Records) ->
     Arity = length(RecordFields) + 1,
     Fields = lists:map(fun parse_record_field/1, RecordFields),
-    FieldTypes = lists:map(fun parse_record_field_type/1, RecordFields),
+
+    Fun = fun(Type) ->
+              parse_record_field_type(Type, Records)
+          end,
+    FieldTypes = lists:map(Fun, RecordFields),
     {Arity, Fields, FieldTypes}.
 
 %% @doc Extract the name from a record field.
@@ -1321,10 +1347,40 @@ parse_record_field({record_field, _, {atom, _, RecordField}, _}) ->
 
 %% @doc Extract the type from a record field.
 %% @end
-parse_record_field_type({typed_record_field, _, Type}) ->
-    parse_type(Type);
-parse_record_field_type(_) ->
-    parse_type({type, 1, any, []}).
+parse_record_field_type({typed_record_field, _, Type}, Records) ->
+    parse_type(Type, Records);
+%parse_record_field_type({record_field, _, _, Type}, Records) ->
+%    parse_type(Type, Records);
+parse_record_field_type(_, Records) ->
+    parse_type({type, 1, any, []}, Records).
+
+%% @doc A literal record value is given as a type. Get it's definition and
+%%      update it with any overrides given.
+%% @end
+parse_literal_record_fields(Record, RecordFields, Records) ->
+    %% Fetch overrides
+    OverrideFields = lists:map(fun parse_literal_record_field/1, RecordFields),
+    Fun = fun(Type) ->
+              parse_literal_record_field_type(Type, Records)
+          end,
+    OverrideFieldTypes = lists:map(Fun, RecordFields),
+    lists:zip(OverrideFields, OverrideFieldTypes).
+
+%% @doc Extract the name from a record field.
+%% @end
+parse_literal_record_field({typed_record_field, RecordField, _}) ->
+    parse_literal_record_field(RecordField);
+parse_literal_record_field({record_field, _, {atom, _, RecordField}}) ->
+    RecordField;
+parse_literal_record_field({record_field, _, {atom, _, RecordField}, _}) ->
+    RecordField.
+
+%% @doc Extract the type from a record field.
+%% @end
+parse_literal_record_field_type({record_field, _, _, Type}, Records) ->
+    parse_type(Type, Records);
+parse_literal_record_field_type(_, Records) ->
+    parse_type({type, 1, any, []}, Records).
 
 %%====================================================================
 %% utility functions
@@ -1341,15 +1397,15 @@ get_var(Line) ->
 
 %% @doc Function that generates a mapping of types to type specs.
 %% @end
-get_types({attribute, _, type, {Type, TypeSpec, _}}, Acc) ->
-  Acc#{Type => parse_type(TypeSpec)};
-get_types(_, Acc) ->
+get_types({attribute, _, type, {Type, TypeSpec, _}}, Records, Acc) ->
+  Acc#{Type => parse_type(TypeSpec, Records)};
+get_types(_, _, Acc) ->
   Acc.
 
 %% @doc Function that generates a mapping of records to record specs.
 %% @end
 get_records({attribute, _, record, {Record, RecordFields}}, Acc) ->
-    Acc#{Record => parse_record_fields(RecordFields)};
+    Acc#{Record => parse_record_fields(RecordFields, #{})};
 get_records(_, Acc) ->
     Acc.
 
@@ -1367,3 +1423,19 @@ is_any([_ | UnionTypes], Types) ->
     is_any(UnionTypes, Types);
 is_any(_, _) ->
     false.
+
+%% @doc Fetches a record spec with the overrides applied.
+%% @end
+override_record_spec(Overrides, Record, Types, Records) ->
+    #{Record := {Arity, RecordFields, RecordTypes}} = Records,
+    DefaultTypes = lists:zip(RecordFields, RecordTypes),
+
+    %% Update types
+    Overridden = lists:foldl(fun({K, V}, Acc) ->
+                                 lists:keyreplace(K, 1, Acc, {K, V})
+                             end,
+                             DefaultTypes,
+                             Overrides),
+
+    {_, OverriddenTypes} = lists:unzip(Overridden),
+    {Arity, RecordFields, OverriddenTypes}.
