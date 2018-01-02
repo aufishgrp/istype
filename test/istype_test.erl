@@ -1418,5 +1418,30 @@ record_validation_test() ->
     false = istype(return_value(#record_b{f = #record_a{e = <<"binary">>}}), typed_record_b_type()),
     true = istype(return_value(#record_b{f = #record_a{e = atom}}), typed_record_b_type()).
 
+list_to_record_conversion_test() ->
+    #record_a{a = also,
+              b = atom,
+              c = atom,
+              d = 1.0,
+              e = binary} = totype([{<<"a">>, <<"also">>}, {"c", "atom"}, {<<"d">>, 1.0}, {e, <<"binary">>}], #record_a{}),
+    #record_a{a = also,
+              b = atom,
+              c = atom,
+              d = 1.0,
+              e = binary} = totype([{<<"a">>, <<"also">>}, {"c", "atom"}, {<<"d">>, 1.0}, {e, <<"binary">>}, {f, invalid}], #record_a{}),
+
+    #record_b{f = #record_a{a = also,
+                            b = atom,
+                            c = atom,
+                            d = 1.0,
+                            e = binary},
+              g = atom} = totype([{f, [{<<"a">>, <<"also">>}, {"c", "atom"}, {<<"d">>, 1.0}, {e, <<"binary">>}]}, {<<"g">>, "atom"}], #record_b{}).
+
+map_to_record_conversion_test() -> ok.
+tuple_to_record_converison_test() -> ok.
+record_to_list_conversion_test() -> ok.
+record_to_map_conversion_test() -> ok.
+record_to_record_conversion_test() -> ok.
+
 to_src() ->
-    file:write_file("output.erl", io_lib:format("~s\n", [forms:from_abstract(forms:read(istype))])).
+    file:write_file("output.erl", io_lib:format("~s\n", [forms:from_abstract(forms:read(istype_test))])).

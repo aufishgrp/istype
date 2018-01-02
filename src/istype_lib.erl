@@ -321,7 +321,6 @@ do_istype_list([Value | Terminator], _, ValueType, TerminatorType, Types, Record
     do_istype(Value, ValueType, Types, Records) andalso
     do_istype(Terminator, TerminatorType, Types, Records).
 
-
 %%==========================================================
 %% do_istype_map()
 %%==========================================================
@@ -396,6 +395,7 @@ totype(Value, Type) ->
 
 totype(Value, Type, Types, Records) ->
     try
+        io:format("Do convert ~p ~p\n", [Value, Type]),
         do_totype(Value, Type, Types, Records)
     catch
         error:{conversion_error, V1, T1, Reason} ->
@@ -886,10 +886,32 @@ do_totype(Value, {type, number, []}, _, _) when is_binary(Value) ->
 %%======================================
 %% Record
 %%======================================
-%do_totype(Value, {record, _, _} = Record, Types, Records) when is_list(Value) ->
-%    do_totype(maps:from_list(Value), Record, Types, Records);
-%do_totype(Value, {record, Record, Overrides}, Types, Records) when is_map(Value) ->
-%    #{Record := {Arity, Fields, FieldTypes}} = Records,
+do_totype(Value, {record_spec, _, _, _} = Record, Types, Records) when is_list(Value) ->
+    do_totype(maps:from_list(Value), Record, Types, Records);
+do_totype(Value, {record_spec, Record, {_, _, _, FieldTypes}, Module}, Types, Records) when is_map(Value) ->
+    Default = Module:istype_default_records(Record),
+    io:format("RecordSpec\n", []),
+    io:format("Default ~p\n", [Default]),
+    AtomMap = maps:fold(fun(K0, V, Acc) ->
+                            K1 = do_totype(K0, atom, Types, Records),
+                            Acc#{K1 => V}
+                        end,
+                        #{},
+                        Value),
+    io:format("AtomMap ~p\n", [AtomMap]),
+    {_, Result} = lists:foldl(fun({F, T}, {Index, Acc}) ->
+                                  case maps:get(F, AtomMap, undefined) of
+                                      undefined ->
+                                          {Index + 1, Acc};
+                                      FieldValue ->
+                                          io:format("Converting ~p ~p\n", [FieldValue, T]),
+                                          {Index + 1, setelement(Index, Acc, do_totype(FieldValue, T, Types, Records))}
+                                  end
+                              end,
+                              {2, Default},
+                              FieldTypes),
+    io:format("Generated Record\n~p\n~p\n", [Default, Result]),
+    Result;
 
 %%======================================
 %% Custom Type
