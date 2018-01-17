@@ -609,7 +609,7 @@ empty_map_conversion_test() ->
     #{} = totype(#{}, #{}),
 
     ok = ?CONVERT_ERROR(atom, #{}),
-    ok = ?CONVERT_ERROR([{a, b}], #{}).
+    ok = ?CONVERT_ERROR([{a, b}], #{a => b}).
 
 mandatory_map_validation_test() ->
     false = istype(return_value(#{}), mandatory_map_type()),
