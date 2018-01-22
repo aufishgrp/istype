@@ -108,6 +108,11 @@
 %% @end
 return_value(Value) -> Value.
 
+-type remote_a() :: istype:remote().
+-type remote_b() :: istype:remote(b()).
+remote_test() ->
+  true = istype(apple, istype:remote()).
+
 %% @doc Assure that the assertion transform works as expected.
 assert_test() ->
     TestBinary = return_value(<<"binary">>),
@@ -322,6 +327,7 @@ erlang_atom_conversion_test() ->
 literal_bitstring_validation_test() ->
     false = istype(return_value(atom), <<>>),
     true = istype(return_value(<<>>), <<>>),
+    true = istype(return_value(<<>>), <<"asdf"/binary>>),
     true = istype(return_value(<<>>), empty_bitstring_type()),
 
     false = istype(return_value(atom), m_bitstring_type()),

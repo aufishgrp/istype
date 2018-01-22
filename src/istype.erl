@@ -1,6 +1,6 @@
 -module(istype).
 -export([istype/2, istype/4,
-	     totype/2, totype/4]).
+         totype/2, totype/4]).
 
 %%====================================================================
 %% istype functions
