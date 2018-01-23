@@ -307,7 +307,6 @@ parse_type({tuple, _, _} = Tuple, Types) ->
 %% @end
 parse_type({type, _, union, UnionTypes0}, Types0) ->
     {UnionTypes1, Types1} = parse_type_list(UnionTypes0, Types0),
-    io:format("Parsed Union\n~p\n~p\n", [UnionTypes1, Types1]),
     {{type, union, UnionTypes1}, Types1};
 %%======================================
 %% term()
@@ -671,7 +670,7 @@ parse_type({type, Line, nonempty_maybe_improper_list, []}, Types) ->
 %%      Calls handled by the default call handler.
 %% @end
 parse_type({type, _, nonempty_maybe_improper_list, ValueTypes0}, Types0) ->
-    {ValueTypes1, Types1} = parse_type_list(ValueTypes0, Types0),    
+    {ValueTypes1, Types1} = parse_type_list(ValueTypes0, Types0),
     {{type, list, list_to_tuple([nonempty | ValueTypes1])}, Types1};
 %%======================================
 %% Record
@@ -708,7 +707,6 @@ parse_type({remote_type, _, RemoteTypeSpec} = TypeSpec, Types0) ->
 
     case Types0 of
         #{TypeKey := RemoteType} ->
-            io:format("Found Type ~p\n", [RemoteType]),
             {RemoteType, Types0};
         #{ParsedKey := true} ->
             parse_error({invalid_remote_type, Module, Type});
