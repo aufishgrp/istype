@@ -1,13 +1,15 @@
 -module(istype_parser).
 
--export([parse_types/1, parse_types/2, parse_type/1]).
+-export([parse_types/1, parse_types/2, parse_type/1,
+         parse_records/1, parse_records/2, parse_records/3, parse_record/1]).
 
 -type form()      :: erl_parse:abstract_form().
 -type forms()     :: list(form()).
--type type()      :: {type, atom(), any | tuple() | list()} |
-                     {record, atom(), list()}.
--type types()     :: #{atom() => type()}.
--type ext_types() :: #{module() => types()}.
+-type type()      :: {type, atom(), any | tuple() | list()}.
+-type types()     :: #{atom() => type(),
+                       {module(), atom()} => type()}.
+-type record()    :: {record, atom(), Arity :: arity(), Fields :: list(atom()), Types :: types()}.
+-type records()   :: #{atom() => record()}.
 
 -export_types([form/0, forms/0, type/0, types/0]).
 
@@ -17,52 +19,54 @@
 %% @doc Functions that are responsible for converting type specs and
 %%      calls that represent type specs into the interlan type format.
 %% @end
-
--spec parse_types(forms()) -> types().
 %%==========================================================
 %% parse_types
 %%==========================================================
+-spec parse_types(forms()) -> types().
 %% @doc Converts a types, calls representing types, and literals
 %%      into the internal type format.
 %% @end
 parse_types(Forms) ->
-    TypesData = lists:foldl(fun({attribute, _, type, {TypeLabel, _, _}} = Form, {Types, ExtTypes0}) ->
-                                   {Type, ExtTypes1} = parse_type(Form, ExtTypes0),
-                                   {Types#{TypeLabel => Type}, ExtTypes1};
-                               (_, Acc) ->
-                                   Acc
-                            end,
-                            {#{}, #{}},
-                            Forms),
-    {Types, _} = TypesData,
-    Types.
+    parse_types(Forms, #{}).
 
--spec parse_types(forms(), ext_types()) -> {list(type()), ext_types()}.
-parse_types(Forms, ExtTypes0) ->
-    parse_types(Forms, [], ExtTypes0).
+-spec parse_types(forms(), types()) -> types().
+parse_types(Forms, Types) ->
+    lists:foldl(fun({attribute, _, type, {TypeLabel, _, _}} = Form, Acc0) ->
+                       {Type, Acc1} = parse_type(Form, Acc0),
+                       Acc1#{TypeLabel => Type};
+                   (_, Acc) ->
+                       Acc
+                end,
+                Types,
+                Forms).
 
--spec parse_types(forms(), list(type()), ext_types()) -> {list(type()), ext_types()}.
-parse_types([], Parsed, ExtTypes) ->
-    {lists:reverse(Parsed), ExtTypes};
-parse_types([Form | Forms], Parsed, ExtTypes0) ->
-    {Type, ExtTypes1} = parse_type(Form, ExtTypes0),
-    parse_types(Forms, [Type | Parsed], ExtTypes1).
+%%=========================================================
+%% parse_type_list
+%%=========================================================
+-spec parse_type_list(forms(), types()) -> {list(type()), types()}.
+parse_type_list(Forms, Types) ->
+    lists:foldr(fun(Form, {TypeAcc, ExtTypeAcc0}) ->
+                    {Type, ExtTypeAcc1} = parse_type(Form, ExtTypeAcc0),
+                    {[Type | TypeAcc], ExtTypeAcc1}
+                end,
+                {[], Types},
+                Forms).
 
--spec parse_type(form()) -> type().
 %%==========================================================
 %% parse_type/1
 %%==========================================================
+-spec parse_type(form()) -> type().
 %% @doc Converts a Type, calls representing a type, and literals
 %%      into the internal type format.
 %% @end
-parse_type(Type) ->
-    {Typing, _} = parse_type(Type, #{}),
-    Typing.
+parse_type(Form) ->
+    {Type, _} = parse_type(Form, #{}),
+    Type.
 
--spec parse_type(form(), ext_types()) -> {type(), ext_types()}.
 %%==========================================================
 %% parse_type/2
 %%==========================================================
+-spec parse_type(form(), types()) -> {type(), types()}.
 %% @doc Converts a Type, calls representing a type, and literals
 %%      into the internal type format.
 %% @end
@@ -72,8 +76,8 @@ parse_type(Type) ->
 %%      Form that wraps the type spec.
 %% @end
 %%======================================
-parse_type({attribute, _, type, {_, TypeSpec, _}}, ExtTypes) ->
-    parse_type(TypeSpec, ExtTypes);
+parse_type({attribute, _, type, {_, TypeSpec, _}}, Types) ->
+    parse_type(TypeSpec, Types);
 %%======================================
 %% any()
 %%======================================
@@ -124,12 +128,12 @@ parse_type({attribute, _, type, {_, TypeSpec, _}}, ExtTypes) ->
 %%      Nil refers to a specific value. Treat it as
 %%      a literal.
 %% @end
-parse_type({nil, _} = Nil, ExtTypes) ->
-    {{literal, Nil}, ExtTypes};
-parse_type({type, Line, nil, []}, ExtTypes) ->
-    {{literal, {nil, Line}}, ExtTypes};
-parse_type({call, Line, {atom, _, nil}, []}, ExtTypes) ->
-    {{literal, {nil, Line}}, ExtTypes};
+parse_type({nil, _} = Nil, Types) ->
+    {{literal, Nil}, Types};
+parse_type({type, Line, nil, []}, Types) ->
+    {{literal, {nil, Line}}, Types};
+parse_type({call, Line, {atom, _, nil}, []}, Types) ->
+    {{literal, {nil, Line}}, Types};
 %%======================================
 %% Atom
 %%======================================
@@ -146,8 +150,8 @@ parse_type({call, Line, {atom, _, nil}, []}, ExtTypes) ->
 %%
 %%      Erlang_Atoms need to be treated as literals.
 %% @end
-parse_type({atom, _, _} = Atom, ExtTypes) ->
-    {{literal, Atom}, ExtTypes};
+parse_type({atom, _, _} = Atom, Types) ->
+    {{literal, Atom}, Types};
 %%======================================
 %% Bitstring
 %%======================================
@@ -159,12 +163,12 @@ parse_type({atom, _, _} = Atom, ExtTypes) ->
 %%      They need to be treated as literal values and should only
 %%      be found within type specs.
 %% @end
-parse_type({type, _, binary, [{integer, _, M}, {integer, _, N}]}, ExtTypes) ->
-    {{type, bitstring, {M, N}}, ExtTypes};
-parse_type({bin, _, []}, ExtTypes) ->
-    {{type, bitstring, {0, 0}}, ExtTypes};
-parse_type({bin, _, _} = Bitstring, ExtTypes) ->
-    {{literal, Bitstring}, ExtTypes};
+parse_type({type, _, binary, [{integer, _, M}, {integer, _, N}]}, Types) ->
+    {{type, bitstring, {M, N}}, Types};
+parse_type({bin, _, []}, Types) ->
+    {{type, bitstring, {0, 0}}, Types};
+parse_type({bin, _, _} = Bitstring, Types) ->
+    {{literal, Bitstring}, Types};
 %%======================================
 %% float()
 %%======================================
@@ -180,19 +184,19 @@ parse_type({bin, _, _} = Bitstring, ExtTypes) ->
 %%              | {call, _, {atom, _, 'fun'}, []},
 %%              | {type, _, 'fun', [{type, _, any}, ReturnType]}
 %%              | {type, _, 'fun', [{type, _, product, []}, ReturnType]}
-%%              | {type, _, 'fun', [{type, _, product, ParameterExtTypes}, ReturnType]}
+%%              | {type, _, 'fun', [{type, _, product, ParameterTypes}, ReturnType]}
 %% @end
-parse_type({type, _, 'fun', []}, ExtTypes) ->
-    {{type, 'fun', any}, ExtTypes};
-parse_type({call, _, {atom, _, 'fun'}, []}, ExtTypes) ->
-    {{type, 'fun', any}, ExtTypes};
-parse_type({type, _, 'fun', [{type, _, any}, ReturnType0]}, ExtTypes0) ->
-    {ReturnType1, ExtTypes1} = parse_type(ReturnType0, ExtTypes0),
-    {{type, 'fun', {any, ReturnType1}}, ExtTypes1};
-parse_type({type, _, 'fun', [{type, _, product, ParameterTypes0}, ReturnType0]}, ExtTypes0) ->
-    {ReturnType1, ExtTypes1} = parse_type(ReturnType0, ExtTypes0),
-    {ParameterTypes1, ExtTypes2} = parse_types(ParameterTypes0, ExtTypes1),
-    {{type, 'fun', {ParameterTypes1, ReturnType1}}, ExtTypes2};
+parse_type({type, _, 'fun', []}, Types) ->
+    {{type, 'fun', any}, Types};
+parse_type({call, _, {atom, _, 'fun'}, []}, Types) ->
+    {{type, 'fun', any}, Types};
+parse_type({type, _, 'fun', [{type, _, any}, ReturnType0]}, Types0) ->
+    {ReturnType1, Types1} = parse_type(ReturnType0, Types0),
+    {{type, 'fun', {any, ReturnType1}}, Types1};
+parse_type({type, _, 'fun', [{type, _, product, ParameterTypes0}, ReturnType0]}, Types0) ->
+    {ReturnType1, Types1} = parse_type(ReturnType0, Types0),
+    {ParameterTypes1, Types2} = parse_type_list(ParameterTypes0, Types1),
+    {{type, 'fun', {ParameterTypes1, ReturnType1}}, Types2};
 %%======================================
 %% Integer
 %%======================================
@@ -210,10 +214,10 @@ parse_type({type, _, 'fun', [{type, _, product, ParameterTypes0}, ReturnType0]},
 %%
 %%      Erlang_Integers need to be treated as literals.
 %% @end
-parse_type({integer, _, _} = Integer, ExtTypes) ->
-    {{literal, Integer}, ExtTypes};
-parse_type({op, _, '-', {integer, _, _}} = Integer, ExtTypes) ->
-    {{literal, Integer}, ExtTypes};
+parse_type({integer, _, _} = Integer, Types) ->
+    {{literal, Integer}, Types};
+parse_type({op, _, '-', {integer, _, _}} = Integer, Types) ->
+    {{literal, Integer}, Types};
 %%==================
 %% Erlang_Integer..Erlang_Integer
 %%==================
@@ -221,8 +225,8 @@ parse_type({op, _, '-', {integer, _, _}} = Integer, ExtTypes) ->
 %%
 %%      Ranges of Erlang_Integers.
 %% @end
-parse_type({type, _, range, [Low, High]}, ExtTypes) ->
-    {{type, range, {{literal, Low}, {literal, High}}}, ExtTypes};
+parse_type({type, _, range, [Low, High]}, Types) ->
+    {{type, range, {{literal, Low}, {literal, High}}}, Types};
 %%======================================
 %% List
 %%======================================
@@ -241,20 +245,20 @@ parse_type({type, _, range, [Low, High]}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, _, list, [{type, _, any, []}]}, ExtTypes) ->
-    {{type, list, any}, ExtTypes};
-parse_type({type, _, list, [ValueType0]}, ExtTypes0) ->
-    {ValueType1, ExtTypes1} = parse_type(ValueType0, ExtTypes0),
-    {{type, list, {maybe_empty, ValueType1, parse_type({type, 1, nil, []})}}, ExtTypes1};
-parse_type({type, _, maybe_improper_list, [_, _] = ValueTypes0}, ExtTypes0) ->
-    {ValueTypes1, ExtTypes1} = parse_types(ValueTypes0, ExtTypes0),
-    {{type, list, list_to_tuple([maybe_empty | ValueTypes1])}, ExtTypes1};
-parse_type({type, _, nonempty_improper_list, ValueTypes0}, ExtTypes0) ->
-    {ValueTypes1, ExtTypes1} = parse_types(ValueTypes0, ExtTypes0),
-    {{type, list, list_to_tuple([nonempty | ValueTypes1])}, ExtTypes1};
-parse_type({type, _, nonempty_list, [ValueType0]}, ExtTypes0) ->
-    {ValueType1, ExtTypes1} = parse_type(ValueType0, ExtTypes0),
-    {{type, list, {nonempty, ValueType1, parse_type({type, 1, nil, []})}}, ExtTypes1};
+parse_type({type, _, list, [{type, _, any, []}]}, Types) ->
+    {{type, list, any}, Types};
+parse_type({type, _, list, [ValueType0]}, Types0) ->
+    {ValueType1, Types1} = parse_type(ValueType0, Types0),
+    {{type, list, {maybe_empty, ValueType1, parse_type({type, 1, nil, []})}}, Types1};
+parse_type({type, _, maybe_improper_list, [_, _] = ValueTypes0}, Types0) ->
+    {ValueTypes1, Types1} = parse_type_list(ValueTypes0, Types0),
+    {{type, list, list_to_tuple([maybe_empty | ValueTypes1])}, Types1};
+parse_type({type, _, nonempty_improper_list, ValueTypes0}, Types0) ->
+    {ValueTypes1, Types1} = parse_type_list(ValueTypes0, Types0),
+    {{type, list, list_to_tuple([nonempty | ValueTypes1])}, Types1};
+parse_type({type, _, nonempty_list, [ValueType0]}, Types0) ->
+    {ValueType1, Types1} = parse_type(ValueType0, Types0),
+    {{type, list, {nonempty, ValueType1, parse_type({type, 1, nil, []})}}, Types1};
 %%======================================
 %% Map
 %%======================================
@@ -264,46 +268,47 @@ parse_type({type, _, nonempty_list, [ValueType0]}, ExtTypes0) ->
 %%              | {type, _, map, []}            %% Empty Map
 %%              | {type, _, map, MapFields}     %% Typed Map
 %%
-%%      MapFields :: list({type, _, map_field_assoc, ExtTypes})
-%%                 | list({type, _, map_field_exact, ExtTypes})
+%%      MapFields :: list({type, _, map_field_assoc, Types})
+%%                 | list({type, _, map_field_exact, Types})
 %%
 %%      A call to map() is treated as any map.
 %% @end
-parse_type({type, _, map, any}, ExtTypes) ->
-    {{type, map, any}, ExtTypes};
-parse_type({call, _, {atom, _, map}, []}, ExtTypes) ->
-    {{type, map, any}, ExtTypes};
-parse_type({type, _, map, []}, ExtTypes) ->
-    {{type, map, empty}, ExtTypes};
-parse_type({type, _, map, MapFields}, ExtTypes0) ->
-    {MapFieldTypes, ExtTypes1} = parse_map_fields(MapFields, ExtTypes0),
-    {{type, map, MapFieldTypes}, ExtTypes1};
+parse_type({type, _, map, any}, Types) ->
+    {{type, map, any}, Types};
+parse_type({call, _, {atom, _, map}, []}, Types) ->
+    {{type, map, any}, Types};
+parse_type({type, _, map, []}, Types) ->
+    {{type, map, empty}, Types};
+parse_type({type, _, map, MapFields}, Types0) ->
+    {MapFieldTypes, Types1} = parse_map_fields(MapFields, Types0),
+    {{type, map, MapFieldTypes}, Types1};
 %%======================================
 %% Tuple
 %%======================================
 %% @doc Expect :: {type, _, tuple, any}           %% Any Tuple
 %%              | {call, _, {atom, _, tuple}, []} %% Any Tuple
 %%              | {type, _, tuple, []}            %% Empty Tuple
-%%              | {type, _, tuple, FieldExtTypes}    %% Typed Tuple
+%%              | {type, _, tuple, FieldTypes}    %% Typed Tuple
 %%              | {tuple, _, _}                   %% Tuple literal
 %% @end
-parse_type({type, _, tuple, any}, ExtTypes) ->
-    {{type, tuple, any}, ExtTypes};
-parse_type({call, _, {atom, _, tuple}, []}, ExtTypes) ->
-    {{type, tuple, any}, ExtTypes};
-parse_type({type, _, tuple, FieldTypes0}, ExtTypes0) ->
-    {FieldTypes1, ExtTypes1} = parse_types(FieldTypes0, ExtTypes0),
-    {{type, tuple, FieldTypes1}, ExtTypes1};
-parse_type({tuple, _, _} = Tuple, ExtTypes) ->
-    {{literal, Tuple}, ExtTypes};
+parse_type({type, _, tuple, any}, Types) ->
+    {{type, tuple, any}, Types};
+parse_type({call, _, {atom, _, tuple}, []}, Types) ->
+    {{type, tuple, any}, Types};
+parse_type({type, _, tuple, FieldTypes0}, Types0) ->
+    {FieldTypes1, Types1} = parse_type_list(FieldTypes0, Types0),
+    {{type, tuple, FieldTypes1}, Types1};
+parse_type({tuple, _, _} = Tuple, Types) ->
+    {{literal, Tuple}, Types};
 %%======================================
 %% Union
 %%======================================
-%% @doc Expect :: {type, _, union, ExtTypes} %% Any Tuple
+%% @doc Expect :: {type, _, union, Types} %% Any Tuple
 %% @end
-parse_type({type, _, union, UnionTypes0}, ExtTypes0) ->
-    {UnionTypes1, ExtTypes1} = parse_types(UnionTypes0, ExtTypes0),
-    {{type, union, UnionTypes1}, ExtTypes1};
+parse_type({type, _, union, UnionTypes0}, Types0) ->
+    {UnionTypes1, Types1} = parse_type_list(UnionTypes0, Types0),
+    io:format("Parsed Union\n~p\n~p\n", [UnionTypes1, Types1]),
+    {{type, union, UnionTypes1}, Types1};
 %%======================================
 %% term()
 %%======================================
@@ -313,8 +318,8 @@ parse_type({type, _, union, UnionTypes0}, ExtTypes0) ->
 %%
 %%      Calls are handled by the default call handler.
 %% @end
-parse_type({type, Line, term, []}, ExtTypes) ->
-    parse_type({type, Line, any, []}, ExtTypes);
+parse_type({type, Line, term, []}, Types) ->
+    parse_type({type, Line, any, []}, Types);
 %%======================================
 %% binary()
 %%======================================
@@ -352,10 +357,10 @@ parse_type({type, Line, term, []}, ExtTypes) ->
 %%
 %%      Calls are handled by the default call handler.
 %% @end
-parse_type({type, Line, byte, []}, ExtTypes) ->
+parse_type({type, Line, byte, []}, Types) ->
     parse_type({type, Line, range, [{integer, Line, 0},
                                     {integer, Line, 255}]},
-               ExtTypes);
+               Types);
 %%======================================
 %% char()
 %%======================================
@@ -366,10 +371,10 @@ parse_type({type, Line, byte, []}, ExtTypes) ->
 %%
 %%      Calls are handled by the default call handler.
 %% @end
-parse_type({type, Line, char, []}, ExtTypes) ->
+parse_type({type, Line, char, []}, Types) ->
     parse_type({type, Line, range, [{integer, Line, 0},
                                     {integer, Line, 16#10ffff}]},
-               ExtTypes);
+               Types);
 %%======================================
 %% nil()
 %%======================================
@@ -395,8 +400,8 @@ parse_type({type, Line, char, []}, ExtTypes) ->
 %%
 %%      Calls handled by List above.
 %% @end
-parse_type({type, Line, list, []}, ExtTypes) ->
-    parse_type({type, Line, list, [{type, Line, any, []}]}, ExtTypes);
+parse_type({type, Line, list, []}, Types) ->
+    parse_type({type, Line, list, [{type, Line, any, []}]}, Types);
 %%======================================
 %% maybe_improper_list()
 %%======================================
@@ -407,8 +412,8 @@ parse_type({type, Line, list, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, maybe_improper_list, []}, ExtTypes) ->
-    parse_type({type, Line, maybe_improper_list, [{type, Line, any, []}, {type, Line, any, []}]}, ExtTypes);
+parse_type({type, Line, maybe_improper_list, []}, Types) ->
+    parse_type({type, Line, maybe_improper_list, [{type, Line, any, []}, {type, Line, any, []}]}, Types);
 %%======================================
 %% nonempty_list()
 %%======================================
@@ -419,8 +424,8 @@ parse_type({type, Line, maybe_improper_list, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, nonempty_list, []}, ExtTypes) ->
-    parse_type({type, Line, nonempty_list, [{type, Line, any, []}]}, ExtTypes);
+parse_type({type, Line, nonempty_list, []}, Types) ->
+    parse_type({type, Line, nonempty_list, [{type, Line, any, []}]}, Types);
 %%======================================
 %% string()
 %%======================================
@@ -431,8 +436,8 @@ parse_type({type, Line, nonempty_list, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, string, []}, ExtTypes) ->
-    parse_type({type, Line, list, [{type, Line, char, []}]}, ExtTypes);
+parse_type({type, Line, string, []}, Types) ->
+    parse_type({type, Line, list, [{type, Line, char, []}]}, Types);
 %%======================================
 %% nonempty_string()
 %%======================================
@@ -443,8 +448,8 @@ parse_type({type, Line, string, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, nonempty_string, []}, ExtTypes) ->
-    parse_type({type, Line, nonempty_list, [{type, Line, char, []}]}, ExtTypes);
+parse_type({type, Line, nonempty_string, []}, Types) ->
+    parse_type({type, Line, nonempty_list, [{type, Line, char, []}]}, Types);
 %%======================================
 %% iodata()
 %%======================================
@@ -455,10 +460,10 @@ parse_type({type, Line, nonempty_string, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, iodata, []}, ExtTypes) ->
+parse_type({type, Line, iodata, []}, Types) ->
     parse_type({type, Line, union, [{type, Line, iolist, []},
                                     {type, Line, binary, []}]},
-               ExtTypes);
+               Types);
 %%======================================
 %% iolist()
 %%======================================
@@ -475,15 +480,15 @@ parse_type({type, Line, iodata, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, iolist, []}, ExtTypes) ->
-    Type1 = {type, Line, union, [{type, Line, byte, []},
+parse_type({type, Line, iolist, []}, Types) ->
+    Form1 = {type, Line, union, [{type, Line, byte, []},
                                  {type, Line, binary, []},
                                  {type, iolist, []}]},
-    Type2 = {type, Line, union, [{type, Line, binary, []},
+    Form2 = {type, Line, union, [{type, Line, binary, []},
                                  {type, Line, nil, []}]},
-    parse_type({type, Line, maybe_improper_list, [Type1, Type2]}, ExtTypes);
-parse_type({type, iolist, []} = Iolist, ExtTypes) ->
-    {Iolist, ExtTypes};
+    parse_type({type, Line, maybe_improper_list, [Form1, Form2]}, Types);
+parse_type({type, iolist, []} = Iolist, Types) ->
+    {Iolist, Types};
 %%======================================
 %% function()
 %%======================================
@@ -493,10 +498,10 @@ parse_type({type, iolist, []} = Iolist, ExtTypes) ->
 %%      Alias for fun().
 %%      All cases can be handled by the default handler.
 %% @end
-parse_type({type, Line, function, []}, ExtTypes) ->
-    parse_type({type, Line, 'fun', []}, ExtTypes);
-parse_type({call, Line, function, []}, ExtTypes) ->
-    parse_type({call, Line, 'fun', []}, ExtTypes);
+parse_type({type, Line, function, []}, Types) ->
+    parse_type({type, Line, 'fun', []}, Types);
+parse_type({call, Line, function, []}, Types) ->
+    parse_type({call, Line, 'fun', []}, Types);
 %%======================================
 %% module()
 %%======================================
@@ -507,8 +512,8 @@ parse_type({call, Line, function, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, module, []}, ExtTypes) ->
-    parse_type({type, Line, atom, []}, ExtTypes);
+parse_type({type, Line, module, []}, Types) ->
+    parse_type({type, Line, atom, []}, Types);
 %%======================================
 %% mfa()
 %%======================================
@@ -519,11 +524,11 @@ parse_type({type, Line, module, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, mfa, []}, ExtTypes) ->
+parse_type({type, Line, mfa, []}, Types) ->
     parse_type({type, Line, tuple, [{type, Line, module, []},
                                     {type, Line, atom, []},
                                     {type, Line, arity, []}]},
-               ExtTypes);
+               Types);
 %%======================================
 %% arity()
 %%======================================
@@ -534,10 +539,10 @@ parse_type({type, Line, mfa, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, arity, []}, ExtTypes) ->
+parse_type({type, Line, arity, []}, Types) ->
     parse_type({type, Line, range, [{integer, Line, 0},
                                     {integer, Line, 255}]},
-               ExtTypes);
+               Types);
 %%======================================
 %% identifier()
 %%======================================
@@ -548,11 +553,11 @@ parse_type({type, Line, arity, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, identifier, []}, ExtTypes) ->
+parse_type({type, Line, identifier, []}, Types) ->
     parse_type({type, Line, union, [{type, Line, pid, []},
                                     {type, Line, port, []},
                                     {type, Line, reference, []}]},
-               ExtTypes);
+               Types);
 %%======================================
 %% node()
 %%======================================
@@ -563,8 +568,8 @@ parse_type({type, Line, identifier, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, node, []}, ExtTypes) ->
-    parse_type({type, Line, atom, []}, ExtTypes);
+parse_type({type, Line, node, []}, Types) ->
+    parse_type({type, Line, atom, []}, Types);
 %%======================================
 %% timeout()
 %%======================================
@@ -575,10 +580,10 @@ parse_type({type, Line, node, []}, ExtTypes) ->
 %%
 %%      Calls handled by the deafault call handler.
 %% @end
-parse_type({type, Line, timeout, []}, ExtTypes) ->
+parse_type({type, Line, timeout, []}, Types) ->
     parse_type({type, Line, union, [{atom, Line, 'infinity'},
                                     {type, Line, non_neg_integer, []}]},
-               ExtTypes);
+               Types);
 %%======================================
 %% no_return()
 %%======================================
@@ -589,8 +594,8 @@ parse_type({type, Line, timeout, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, no_return, []}, ExtTypes) ->
-    parse_type({type, Line, none, []}, ExtTypes);
+parse_type({type, Line, no_return, []}, Types) ->
+    parse_type({type, Line, none, []}, Types);
 %%======================================
 %% non_neg_integer()
 %%======================================
@@ -601,10 +606,10 @@ parse_type({type, Line, no_return, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, non_neg_integer, []}, ExtTypes) ->
+parse_type({type, Line, non_neg_integer, []}, Types) ->
     parse_type({type, Line, range, [{integer, Line, 0},
                                     {atom, Line, undefined}]},
-               ExtTypes);
+               Types);
 %%======================================
 %% pos_integer()
 %%======================================
@@ -615,10 +620,10 @@ parse_type({type, Line, non_neg_integer, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, pos_integer, []}, ExtTypes) ->
+parse_type({type, Line, pos_integer, []}, Types) ->
     parse_type({type, Line, range, [{integer, Line, 1},
                                     {atom, Line, undefined}]},
-               ExtTypes);
+               Types);
 %%======================================
 %% neg_integer()
 %%======================================
@@ -629,10 +634,10 @@ parse_type({type, Line, pos_integer, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, neg_integer, []}, ExtTypes) ->
+parse_type({type, Line, neg_integer, []}, Types) ->
     parse_type({type, Line, range, [{atom, Line, undefined},
                                     {op, Line, '-', {integer, Line, 1}}]},
-               ExtTypes);
+               Types);
 %%======================================
 %% nonempty_maybe_improper_list()
 %%======================================
@@ -643,10 +648,10 @@ parse_type({type, Line, neg_integer, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, nonempty_maybe_improper_list, []}, ExtTypes) ->
+parse_type({type, Line, nonempty_maybe_improper_list, []}, Types) ->
     parse_type({type, Line, nonempty_maybe_improper_list, [{type, Line, any, []},
                                                            {type, Line, any, []}]},
-               ExtTypes);
+               Types);
 %%======================================
 %% nonempty_improper_list()
 %%======================================
@@ -665,58 +670,66 @@ parse_type({type, Line, nonempty_maybe_improper_list, []}, ExtTypes) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, _, nonempty_maybe_improper_list, ValueTypes0}, ExtTypes0) ->
-    {ValueTypes1, ExtTypes1} = parse_types(ValueTypes0, ExtTypes0),    
-    {{type, list, list_to_tuple([nonempty | ValueTypes1])}, ExtTypes1};
+parse_type({type, _, nonempty_maybe_improper_list, ValueTypes0}, Types0) ->
+    {ValueTypes1, Types1} = parse_type_list(ValueTypes0, Types0),    
+    {{type, list, list_to_tuple([nonempty | ValueTypes1])}, Types1};
 %%======================================
 %% Record
 %%======================================
 %% @doc Expect :: {type, _, record, [Record | FieldOverrides]}
 %%              | {record, _, Record, FieldOverrides}
 %% @end
-parse_type({type, _, record, [{atom, _, Record} | RecordFields0]}, ExtTypes) ->
+parse_type({type, _, record, [{atom, _, Record} | RecordFields0]}, Types) ->
     RecordFields1 = lists:map(fun({type, _, field_type, [{atom, _, Field}, FieldType]}) ->
                                   {Field, parse_type(FieldType)}
                               end,
                               RecordFields0),
-    {{record, Record, RecordFields1}, ExtTypes};
-parse_type({record, _, Record, RecordFields}, ExtTypes) ->
-    {{record, Record, parse_literal_record_fields(RecordFields)}, ExtTypes};
+    {{type, record, {Record, RecordFields1}}, Types};
 %%======================================
 %% Default call handler
 %%======================================
-parse_type({call, Line, {atom, _, Type}, TypeArgs}, ExtTypes) ->
-    parse_type({type, Line, Type, TypeArgs}, ExtTypes);
+parse_type({call, Line, {atom, _, Type}, TypeArgs}, Types) ->
+    parse_type({type, Line, Type, TypeArgs}, Types);
 %%======================================
 %% Remote call handler
 %%======================================
-parse_type({call, Line, {remote, _, Module, Type}, TypeArgs}, ExtTypes) ->
-    parse_type({remote_type, Line, [Module, Type, TypeArgs]}, ExtTypes);
+parse_type({call, Line, {remote, _, Module, Type}, TypeArgs}, Types) ->
+    parse_type({remote_type, Line, [Module, Type, TypeArgs]}, Types);
 %%======================================
 %% Remote handler
 %%======================================
-parse_type({remote_type, _, RemoteType} = TypeSpec, ExtTypes) ->
+parse_type({remote_type, _, RemoteTypeSpec} = TypeSpec, Types0) ->
     [{atom, _, Module},
      {atom, _, Type},
-     _] = RemoteType,
+     _] = RemoteTypeSpec,
 
-    case ExtTypes of
-        #{Module := RemoteTypes} ->
-            case RemoteTypes of
-                #{Type := Typing} ->
-                    {Typing, ExtTypes};
-                _ ->
-                    parse_error({invalid_remote_type, Module, Type})
-            end;
+     TypeKey = {Module, Type},
+     ParsedKey = {parsed, Module},
+
+    case Types0 of
+        #{TypeKey := RemoteType} ->
+            io:format("Found Type ~p\n", [RemoteType]),
+            {RemoteType, Types0};
+        #{ParsedKey := true} ->
+            parse_error({invalid_remote_type, Module, Type});
         _ ->
-            parse_type(TypeSpec, ExtTypes#{Module => parse_types(forms:read(Module))})
+            Types1 = parse_types(forms:read(Module)),
+            Types2 = maps:fold(fun(K, V, Acc) ->
+                                      Acc#{{Module, K} => V}
+                                  end,
+                                  Types0#{{parsed, Module} => true},
+                                  Types1),
+
+            parse_type(TypeSpec, Types2)
     end;
 %%======================================
 %% Default handler
 %%======================================
-parse_type({Class, _, Type, TypeArgs}, ExtTypes) when Class =:= type orelse
-                                                      Class =:= user_type ->
-    {{type, Type, lists:map(parse_type_fun(ExtTypes), TypeArgs)}, ExtTypes};
+parse_type({Class, _, Type, TypeArgs}, Types0) when Class =:= type orelse
+                                                    Class =:= user_type ->
+
+    {TList, Types1} = parse_type_list(TypeArgs, Types0),
+    {{type, Type, TList}, Types1};
 parse_type(Type, _) ->
     parse_error(Type).
 
@@ -729,29 +742,80 @@ parse_error(Type) ->
 %%=========================================================
 %% parse_map_fields
 %%=========================================================
-parse_map_fields(Fields0, ExtTypes0) ->
-    {Exact, ExtTypes1} = lists:foldl(fun(ExtTypes, {FieldAcc, TypeAcc0}) ->
-                                      {Fields, TypeAcc1} = parse_types(ExtTypes, TypeAcc0),
+parse_map_fields(Fields0, Types0) ->
+    {Exact, Types1} = lists:foldr(fun(Types, {FieldAcc, TypeAcc0}) ->
+                                      {Fields, TypeAcc1} = parse_type_list(Types, TypeAcc0),
                                       {[list_to_tuple(Fields) | FieldAcc], TypeAcc1}
                                   end,
-                                  {[], ExtTypes0},
+                                  {[], Types0},
                                   [F || {type, _, map_field_exact, F} <- Fields0]),
-    {Assoc, ExtTypes2} = lists:foldl(fun(ExtTypes, {FieldAcc, TypeAcc0}) ->
-                                      {Fields, TypeAcc1} = parse_types(ExtTypes, TypeAcc0),
+    {Assoc, Types2} = lists:foldr(fun(Types, {FieldAcc, TypeAcc0}) ->
+                                      {Fields, TypeAcc1} = parse_type_list(Types, TypeAcc0),
                                       {[list_to_tuple(Fields) | FieldAcc], TypeAcc1}
                                   end,
-                                  {[], ExtTypes1},
+                                  {[], Types1},
                                   [F || {type, _, map_field_assoc, F} <- Fields0]),
-    {{lists:reverse(Exact), lists:reverse(Assoc)}, ExtTypes2}.
+    {{Exact, Assoc}, Types2}.
 
 %%=========================================================
-%% parse_record
+%% parse_records
 %%=========================================================
-parse_record_fields(RecordFields) ->
+-spec parse_records(forms()) -> records().
+parse_records(Forms) ->
+    {_, Records} = parse_records(Forms, #{}, #{}),
+    Records.
+
+-spec parse_records(forms(), types()) -> {types(), records()}.
+parse_records(Forms, Types) ->
+    parse_records(Forms, Types, #{}).
+
+-spec parse_records(forms(), types(), records()) -> {types(), records()}.
+%% @doc
+%% @end
+parse_records(Forms, Types, Records) ->
+    lists:foldl(fun({attribute, _, record, {RecordLabel, _}} = Form, {TypesAcc0, RecordsAcc}) ->
+                        {Record, TypesAcc1} = parse_record(Form, TypesAcc0),
+                        {TypesAcc1, RecordsAcc#{RecordLabel => Record}};
+                    (_, Acc) ->
+                        Acc
+                end,
+                {Types, Records},
+                Forms).
+
+%%=========================================================
+%% parse_record/1
+%%=========================================================
+-spec parse_record(form()) -> record().
+parse_record(Form) ->
+    {Record, _} = parse_record(Form, #{}),
+    Record.
+
+%%=========================================================
+%% parse_record/2
+%%=========================================================
+-spec parse_record(form(), types()) -> {record(), types()}.
+parse_record({attribute, _, record, {Record, RecordFields}}, Types0) ->
+    {{Arity, Fields, FieldTypes, FieldDefaults}, Types1} = parse_record_fields(RecordFields, Types0),
+    {{record, Record, Arity, Fields, FieldTypes, FieldDefaults}, Types1}.
+
+%%=========================================================
+%% parse_record_fields
+%%=========================================================
+parse_record_fields(RecordFields, Types0) ->
     Arity = length(RecordFields) + 1,
     Fields = lists:map(fun parse_record_field/1, RecordFields),
-    FieldExtTypes = lists:map(fun parse_record_field_type/1, RecordFields),
-    {Arity, Fields, FieldExtTypes}.
+    FieldDefaults = lists:map(fun parse_record_field_default/1, RecordFields),
+    {FieldTypes, Types1} = lists:foldr(fun(RecordField, {RecordFieldAcc, TypesAcc0}) ->
+                                           {ParsedRecordField, TypesAcc1} = parse_record_field_type(RecordField, TypesAcc0),
+                                           {[ParsedRecordField | RecordFieldAcc], TypesAcc1}
+                                       end,
+                                       {[], Types0},
+                                       RecordFields),
+    {{Arity,
+      Fields,
+      maps:from_list(lists:zip(Fields, FieldTypes)),
+      maps:from_list(lists:zip(Fields, FieldDefaults))},
+     Types1}.
 
 %% @doc Extract the name from a record field.
 %% @end
@@ -762,39 +826,18 @@ parse_record_field({record_field, _, {atom, _, RecordField}}) ->
 parse_record_field({record_field, _, {atom, _, RecordField}, _}) ->
     RecordField.
 
-%% @doc Extract the type from a record field.
 %% @end
-parse_record_field_type({typed_record_field, _, Type}) ->
-    parse_type(Type);
-parse_record_field_type(_) ->
-    parse_type({type, 1, any, []}).
-
-%% @doc A literal record value is given as a type. Get it's definition and
-%%      update it with any overrides given.
-%% @end
-parse_literal_record_fields(RecordFields) ->
-    %% Fetch overrides
-    OverrideFields = lists:map(fun parse_literal_record_field/1, RecordFields),
-    OverrideFieldTypes = lists:map(fun parse_literal_record_field_type/1, RecordFields),
-    lists:zip(OverrideFields, OverrideFieldTypes).
-
-%% @doc Extract the name from a record field.
-%% @end
-parse_literal_record_field({typed_record_field, RecordField, _}) ->
-    parse_literal_record_field(RecordField);
-parse_literal_record_field({record_field, _, {atom, _, RecordField}}) ->
-    RecordField;
-parse_literal_record_field({record_field, _, {atom, _, RecordField}, _}) ->
-    RecordField.
+parse_record_field_default({typed_record_field, RecordField, _}) ->
+    parse_record_field_default(RecordField);
+parse_record_field_default({record_field, Line, _}) ->
+    {literal, {atom, Line, undefined}};
+parse_record_field_default({record_field, _, _, Default}) ->
+    {literal, Default}.
 
 %% @doc Extract the type from a record field.
 %% @end
-parse_literal_record_field_type({record_field, _, _, Type}) ->
-    parse_type(Type);
-parse_literal_record_field_type(_) ->
-    parse_type({type, 1, any, []}).
+parse_record_field_type({typed_record_field, _, Type}, Types) ->
+    parse_type(Type, Types);
+parse_record_field_type(_, Types) ->
+    parse_type({type, 1, any, []}, Types).
 
-parse_type_fun(ExtTypes) ->
-    fun(Type) ->
-        parse_type(Type, ExtTypes)
-    end.

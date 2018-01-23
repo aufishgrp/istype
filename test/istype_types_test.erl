@@ -1,13 +1,9 @@
 -module(istype_types_test).
 
--type typea() :: atom().
+-record(recorda, {a = 0 :: integer() | float()}).
 
+-type typea() :: atom().
+-type recorda() :: #recorda{}.
+-type recordb() :: #recorda{a :: float()}.
 -export_types([typea/0]).
 
- %[{attribute,1,file,
- %            {"/Users/charlie.zilm/Git/istype/_build/test/lib/istype/test/istype_test.erl",
- %             1}},
- % {attribute,1,module,istype_test},
- % {attribute,3,type,{typea,{type,3,atom,[]},[]}},
- % {attribute,5,export_types,[{typea,0}]},
- % {eof,5}]

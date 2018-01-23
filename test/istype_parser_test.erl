@@ -135,6 +135,7 @@ integer_test() ->
     {type, tuple, [{type, integer, []}, {type, atom, []}]} = istype_parser:parse_type({type, 1, tuple, [{type, 1, integer, []}, {type, 1, atom, []}]}).
 
 'Union_test'() ->
+    io:format("Parse Union ~p\n", [istype_parser:parse_type({type, 1, union, [{type, 1, integer, []}]})]),
     {type, union, [{type, integer, []}]} = istype_parser:parse_type({type, 1, union, [{type, 1, integer, []}]}),
     {type, union, [{type, integer, []}, {type, atom, []}]} = istype_parser:parse_type({type, 1, union, [{type, 1, integer, []}, {type, 1, atom, []}]}).
 
@@ -262,12 +263,28 @@ neg_integer_test() ->
                             {literal, {op, 1, '-', {integer, 1, 1}}}}},
     ?TYPEANDCALL(Result, neg_integer).
 
+type_record_test() ->
+    io:format("Code \n~p\n", [forms:read(istype_types_test)]),    
+    Result1 = {type, record, {recorda, []}},
+    Result1 = istype_parser:parse_type({type, 1, record, [{atom, 1, recorda}]}),
+
+    Result2 = {type, record, {recorda, [{a, {type, float, []}}]}},
+    Result2 = istype_parser:parse_type({type, 1, record, [{atom, 1, recorda},
+                                                          {type, 7, field_type, [{atom, 1, a}, {type, 1, float,[]}]}]}).
 remote_test() ->
-    io:format("Code \n~p\n", [forms:read(istype_types_test)]),
     Result = {type, atom, []},
     Result = istype_parser:parse_type({remote_type, 1, [{atom, 1, istype_types_test}, {atom, 1, typea}, []]}),
     Result = istype_parser:parse_type({call, 1, {remote, 1, {atom, 1, istype_types_test}, {atom, 1, typea}}, []}).
 
-
-
-
+%%=============================================================================
+%% parse_record/1 Tests
+%%=============================================================================
+record_test() ->
+    Result1 = {record, recorda, 2, [a], #{a => {type, any, []}}, #{a => {literal, {atom, 1, undefined}}}},
+    Result1 = istype_parser:parse_record({attribute, 1, record, {recorda, [{record_field, 1, {atom, 1, a}}]}}),
+    
+    Result2 = {record, recorda, 2, [a], #{a => {type, atom, []}}, #{a => {literal, {atom, 1, undefined}}}},
+    Result2 = istype_parser:parse_record({attribute, 1, record, {recorda, [{typed_record_field, {record_field, 1, {atom, 1, a}}, {type, 1, atom, []}}]}}),
+    
+    Result3 = {record, recorda, 2, [a], #{a => {type, atom, []}}, #{a => {literal, {atom, 1, atom}}}},
+    Result3 = istype_parser:parse_record({attribute, 1, record, {recorda, [{typed_record_field, {record_field, 1, {atom, 1, a}, {atom, 1, atom}}, {type, 1, atom, []}}]}}).
