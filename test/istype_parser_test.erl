@@ -3,11 +3,11 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(TYPEANDCALL(Result, TypeAtom), fun() ->
-                                       Type = istype_parser:parse_type({type, 1, TypeAtom, []}),
-                                       Call = istype_parser:parse_type({call, 1, {atom, 1, TypeAtom}, []}),
-                                       Type = Result,
-                                       Call = Result
-                                   end()).
+                                           Type = istype_parser:parse_type({type, 1, TypeAtom, []}),
+                                           Call = istype_parser:parse_type({call, 1, {atom, 1, TypeAtom}, []}),
+                                           Type = Result,
+                                           Call = Result
+                                       end()).
 
 %%=============================================================================
 %% parse_types/1 Tests
@@ -53,10 +53,8 @@ atom_test() ->
     {literal, {atom, 1, 'ErlangAtom'}} = istype_parser:parse_type({atom, 1, 'ErlangAtom'}).
 
 'Bitstring_test'() ->
-    Literal = {bin, 1, [{bin_element, 1, {string, 1, "binary"}, default, [binary]}]},
-    {literal, Literal} = istype_parser:parse_type(Literal),
     {type, bitstring, {1, 2}} = istype_parser:parse_type({type, 1, binary, [{integer, 1, 1},
-                                                                               {integer, 1, 2}]}).
+                                                                            {integer, 1, 2}]}).
 
 'Fun_test'() ->
     Result1 = {type, 'fun', any},
@@ -131,9 +129,10 @@ integer_test() ->
     {type, tuple, any} = istype_parser:parse_type({type, 1, tuple, any}),
     {type, tuple, any} = istype_parser:parse_type({call, 1, {atom, 1, tuple}, []}),
 
-    {type, tuple, []} = istype_parser:parse_type({type, 1, tuple, []}),
-    {type, tuple, [{type, integer, []}]} = istype_parser:parse_type({type, 1, tuple, [{type, 1, integer, []}]}),
-    {type, tuple, [{type, integer, []}, {type, atom, []}]} = istype_parser:parse_type({type, 1, tuple, [{type, 1, integer, []}, {type, 1, atom, []}]}).
+    {type, tuple, empty} = istype_parser:parse_type({type, 1, tuple, []}),
+    {type, tuple, {1, [{1, {type, integer, []}}]}} = istype_parser:parse_type({type, 1, tuple, [{type, 1, integer, []}]}),
+    {type, tuple, {2, [{1, {type, integer, []}}, {2, {type, atom, []}}]}} = istype_parser:parse_type({type, 1, tuple, [{type, 1, integer, []}, {type, 1, atom, []}]}),
+    {type, tuple, {2, [{1, {type, integer, []}}, {2, {type, any, []}}]}} = istype_parser:parse_type({type, 1, tuple, [{type, 1, integer, []}, {var, 1, '_'}]}).
 
 'Union_test'() ->
     {type, union, [{type, integer, []}]} = istype_parser:parse_type({type, 1, union, [{type, 1, integer, []}]}),
@@ -217,10 +216,10 @@ module_test() ->
     ?TYPEANDCALL(Result, module).
 
 mfa_test() ->
-    Result = {type, tuple, [{type, atom, []},
-                            {type, atom, []},
-                            {type, range, {{literal, {integer, 1, 0}},
-                                           {literal, {integer, 1, 255}}}}]},
+    Result = {type, tuple, {3, [{1, {type, atom, []}},
+                                {2, {type, atom, []}},
+                                {3, {type, range, {{literal, {integer, 1, 0}},
+                                                   {literal, {integer, 1, 255}}}}}]}},
     ?TYPEANDCALL(Result, mfa).
 
 arity_test() ->

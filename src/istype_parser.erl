@@ -3,16 +3,6 @@
 -export([parse_types/1, parse_types/2, parse_type/1,
          parse_records/1, parse_records/2, parse_records/3, parse_record/1]).
 
--type form()      :: erl_parse:abstract_form().
--type forms()     :: list(form()).
--type type()      :: {type, atom(), any | tuple() | list()}.
--type types()     :: #{atom() => type(),
-                       {module(), atom()} => type()}.
--type record()    :: {record, atom(), Arity :: arity(), Fields :: list(atom()), Types :: types()}.
--type records()   :: #{atom() => record()}.
-
--export_types([form/0, forms/0, type/0, types/0]).
-
 %%=============================================================================
 %% parsing functions
 %%=============================================================================
@@ -22,14 +12,14 @@
 %%==========================================================
 %% parse_types
 %%==========================================================
--spec parse_types(forms()) -> types().
+-spec parse_types(istype:forms()) -> istype:types().
 %% @doc Converts a types, calls representing types, and literals
 %%      into the internal type format.
 %% @end
 parse_types(Forms) ->
     parse_types(Forms, #{}).
 
--spec parse_types(forms(), types()) -> types().
+-spec parse_types(istype:forms(), istype:types()) -> istype:types().
 parse_types(Forms, Types) ->
     lists:foldl(fun({attribute, _, type, {TypeLabel, _, _}} = Form, Acc0) ->
                        {Type, Acc1} = parse_type(Form, Acc0),
@@ -43,7 +33,7 @@ parse_types(Forms, Types) ->
 %%=========================================================
 %% parse_type_list
 %%=========================================================
--spec parse_type_list(forms(), types()) -> {list(type()), types()}.
+-spec parse_type_list(istype:forms(), istype:types()) -> {list(istype:type()), istype:types()}.
 parse_type_list(Forms, Types) ->
     lists:foldr(fun(Form, {TypeAcc, ExtTypeAcc0}) ->
                     {Type, ExtTypeAcc1} = parse_type(Form, ExtTypeAcc0),
@@ -55,7 +45,7 @@ parse_type_list(Forms, Types) ->
 %%==========================================================
 %% parse_type/1
 %%==========================================================
--spec parse_type(form()) -> type().
+-spec parse_type(istype:form()) -> istype:type().
 %% @doc Converts a Type, calls representing a type, and literals
 %%      into the internal type format.
 %% @end
@@ -66,7 +56,7 @@ parse_type(Form) ->
 %%==========================================================
 %% parse_type/2
 %%==========================================================
--spec parse_type(form(), types()) -> {type(), types()}.
+-spec parse_type(istype:form(), istype:types()) -> {istype:type(), istype:types()}.
 %% @doc Converts a Type, calls representing a type, and literals
 %%      into the internal type format.
 %% @end
@@ -78,6 +68,14 @@ parse_type(Form) ->
 %%======================================
 parse_type({attribute, _, type, {_, TypeSpec, _}}, Types) ->
     parse_type(TypeSpec, Types);
+%%======================================
+%% @doc var '_'
+%%
+%%      Type variable that means any value.
+%% @end
+%%======================================
+parse_type({var, _, '_'}, Types) ->
+    parse_type({type, 1, any, []}, Types);
 %%======================================
 %% any()
 %%======================================
@@ -167,8 +165,6 @@ parse_type({type, _, binary, [{integer, _, M}, {integer, _, N}]}, Types) ->
     {{type, bitstring, {M, N}}, Types};
 parse_type({bin, _, []}, Types) ->
     {{type, bitstring, {0, 0}}, Types};
-parse_type({bin, _, _} = Bitstring, Types) ->
-    {{literal, Bitstring}, Types};
 %%======================================
 %% float()
 %%======================================
@@ -295,11 +291,11 @@ parse_type({type, _, tuple, any}, Types) ->
     {{type, tuple, any}, Types};
 parse_type({call, _, {atom, _, tuple}, []}, Types) ->
     {{type, tuple, any}, Types};
+parse_type({type, _, tuple, []}, Types) ->
+    {{type, tuple, empty}, Types};
 parse_type({type, _, tuple, FieldTypes0}, Types0) ->
-    {FieldTypes1, Types1} = parse_type_list(FieldTypes0, Types0),
+    {FieldTypes1, Types1} = parse_tuple_fields(FieldTypes0, Types0),
     {{type, tuple, FieldTypes1}, Types1};
-parse_type({tuple, _, _} = Tuple, Types) ->
-    {{literal, Tuple}, Types};
 %%======================================
 %% Union
 %%======================================
@@ -495,12 +491,11 @@ parse_type({type, iolist, []} = Iolist, Types) ->
 %%              | {call, _, {atom, _, function}, []}
 %%
 %%      Alias for fun().
-%%      All cases can be handled by the default handler.
 %% @end
 parse_type({type, Line, function, []}, Types) ->
     parse_type({type, Line, 'fun', []}, Types);
-parse_type({call, Line, function, []}, Types) ->
-    parse_type({call, Line, 'fun', []}, Types);
+parse_type({call, Line, {atom, _, function}, []}, Types) ->
+    parse_type({call, Line, {atom, Line, 'fun'}, []}, Types);
 %%======================================
 %% module()
 %%======================================
@@ -756,18 +751,26 @@ parse_map_fields(Fields0, Types0) ->
     {{Exact, Assoc}, Types2}.
 
 %%=========================================================
+%% parse_tuple_fields
+%%=========================================================
+parse_tuple_fields(Forms, Types0) ->
+    {TypeList, Types1} = parse_type_list(Forms, Types0),
+    Length = length(Forms),
+    {{Length, lists:zip(lists:seq(1, Length), TypeList)}, Types1}.
+
+%%=========================================================
 %% parse_records
 %%=========================================================
--spec parse_records(forms()) -> records().
+-spec parse_records(istype:forms()) -> istype:records().
 parse_records(Forms) ->
     {_, Records} = parse_records(Forms, #{}, #{}),
     Records.
 
--spec parse_records(forms(), types()) -> {types(), records()}.
+-spec parse_records(istype:forms(), istype:types()) -> {istype:types(), istype:records()}.
 parse_records(Forms, Types) ->
     parse_records(Forms, Types, #{}).
 
--spec parse_records(forms(), types(), records()) -> {types(), records()}.
+-spec parse_records(istype:forms(), istype:types(), istype:records()) -> {istype:types(), istype:records()}.
 %% @doc
 %% @end
 parse_records(Forms, Types, Records) ->
@@ -783,7 +786,7 @@ parse_records(Forms, Types, Records) ->
 %%=========================================================
 %% parse_record/1
 %%=========================================================
--spec parse_record(form()) -> record().
+-spec parse_record(istype:form()) -> istype:record().
 parse_record(Form) ->
     {Record, _} = parse_record(Form, #{}),
     Record.
@@ -791,7 +794,7 @@ parse_record(Form) ->
 %%=========================================================
 %% parse_record/2
 %%=========================================================
--spec parse_record(form(), types()) -> {record(), types()}.
+-spec parse_record(istype:form(), istype:types()) -> {istype:record(), istype:types()}.
 parse_record({attribute, _, record, {Record, RecordFields}}, Types0) ->
     {{Arity, Fields, FieldTypes, FieldDefaults}, Types1} = parse_record_fields(RecordFields, Types0),
     {{record, Record, Arity, Fields, FieldTypes, FieldDefaults}, Types1}.

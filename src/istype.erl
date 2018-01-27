@@ -2,6 +2,18 @@
 -export([istype/2, istype/4,
          totype/2, totype/4]).
 
+-type form()      :: erl_parse:abstract_form().
+-type forms()     :: list(form()).
+-type type()      :: {type, atom(), any | tuple() | list()}.
+-type types()     :: #{atom() => type(),
+                       {module(), atom()} => type()}.
+-type record()    :: {record, atom(), Arity :: arity(), Fields :: list(atom()), Types :: istype:types()}.
+-type records()   :: #{atom() => record()}.
+
+-export_types([form/0, forms/0,
+	           type/0, types/0,
+	           record/0, records/0]).
+
 %%====================================================================
 %% istype functions
 %%====================================================================
