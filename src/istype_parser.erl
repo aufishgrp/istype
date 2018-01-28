@@ -57,6 +57,11 @@ parse_type(Form) ->
 %% parse_type/2
 %%==========================================================
 -spec parse_type(istype:form(), istype:types()) -> {istype:type(), istype:types()}.
+parse_type(Form, Types) ->
+    io:format("\nParse Type\n~p\n", [Form]),
+    do_parse_type(Form, Types).
+
+
 %% @doc Converts a Type, calls representing a type, and literals
 %%      into the internal type format.
 %% @end
@@ -66,7 +71,7 @@ parse_type(Form) ->
 %%      Form that wraps the type spec.
 %% @end
 %%======================================
-parse_type({attribute, _, type, {_, TypeSpec, _}}, Types) ->
+do_parse_type({attribute, _, type, {_, TypeSpec, _}}, Types) ->
     parse_type(TypeSpec, Types);
 %%======================================
 %% @doc var '_'
@@ -74,8 +79,16 @@ parse_type({attribute, _, type, {_, TypeSpec, _}}, Types) ->
 %%      Type variable that means any value.
 %% @end
 %%======================================
-parse_type({var, _, '_'}, Types) ->
+do_parse_type({var, _, '_'}, Types) ->
     parse_type({type, 1, any, []}, Types);
+%%======================================
+%% @doc Annotated Type Name :: type()
+%%
+%%      Type variable that means any value.
+%% @end
+%%======================================
+do_parse_type({ann_type, _, [_, Type]}, Types) ->
+    parse_type(Type, Types);
 %%======================================
 %% any()
 %%======================================
@@ -126,11 +139,11 @@ parse_type({var, _, '_'}, Types) ->
 %%      Nil refers to a specific value. Treat it as
 %%      a literal.
 %% @end
-parse_type({nil, _} = Nil, Types) ->
+do_parse_type({nil, _} = Nil, Types) ->
     {{literal, Nil}, Types};
-parse_type({type, Line, nil, []}, Types) ->
+do_parse_type({type, Line, nil, []}, Types) ->
     {{literal, {nil, Line}}, Types};
-parse_type({call, Line, {atom, _, nil}, []}, Types) ->
+do_parse_type({call, Line, {atom, _, nil}, []}, Types) ->
     {{literal, {nil, Line}}, Types};
 %%======================================
 %% Atom
@@ -148,7 +161,7 @@ parse_type({call, Line, {atom, _, nil}, []}, Types) ->
 %%
 %%      Erlang_Atoms need to be treated as literals.
 %% @end
-parse_type({atom, _, _} = Atom, Types) ->
+do_parse_type({atom, _, _} = Atom, Types) ->
     {{literal, Atom}, Types};
 %%======================================
 %% Bitstring
@@ -161,9 +174,9 @@ parse_type({atom, _, _} = Atom, Types) ->
 %%      They need to be treated as literal values and should only
 %%      be found within type specs.
 %% @end
-parse_type({type, _, binary, [{integer, _, M}, {integer, _, N}]}, Types) ->
+do_parse_type({type, _, binary, [{integer, _, M}, {integer, _, N}]}, Types) ->
     {{type, bitstring, {M, N}}, Types};
-parse_type({bin, _, []}, Types) ->
+do_parse_type({bin, _, []}, Types) ->
     {{type, bitstring, {0, 0}}, Types};
 %%======================================
 %% float()
@@ -182,14 +195,14 @@ parse_type({bin, _, []}, Types) ->
 %%              | {type, _, 'fun', [{type, _, product, []}, ReturnType]}
 %%              | {type, _, 'fun', [{type, _, product, ParameterTypes}, ReturnType]}
 %% @end
-parse_type({type, _, 'fun', []}, Types) ->
+do_parse_type({type, _, 'fun', []}, Types) ->
     {{type, 'fun', any}, Types};
-parse_type({call, _, {atom, _, 'fun'}, []}, Types) ->
+do_parse_type({call, _, {atom, _, 'fun'}, []}, Types) ->
     {{type, 'fun', any}, Types};
-parse_type({type, _, 'fun', [{type, _, any}, ReturnType0]}, Types0) ->
+do_parse_type({type, _, 'fun', [{type, _, any}, ReturnType0]}, Types0) ->
     {ReturnType1, Types1} = parse_type(ReturnType0, Types0),
     {{type, 'fun', {any, ReturnType1}}, Types1};
-parse_type({type, _, 'fun', [{type, _, product, ParameterTypes0}, ReturnType0]}, Types0) ->
+do_parse_type({type, _, 'fun', [{type, _, product, ParameterTypes0}, ReturnType0]}, Types0) ->
     {ReturnType1, Types1} = parse_type(ReturnType0, Types0),
     {ParameterTypes1, Types2} = parse_type_list(ParameterTypes0, Types1),
     {{type, 'fun', {ParameterTypes1, ReturnType1}}, Types2};
@@ -210,9 +223,9 @@ parse_type({type, _, 'fun', [{type, _, product, ParameterTypes0}, ReturnType0]},
 %%
 %%      Erlang_Integers need to be treated as literals.
 %% @end
-parse_type({integer, _, _} = Integer, Types) ->
+do_parse_type({integer, _, _} = Integer, Types) ->
     {{literal, Integer}, Types};
-parse_type({op, _, '-', {integer, _, _}} = Integer, Types) ->
+do_parse_type({op, _, '-', {integer, _, _}} = Integer, Types) ->
     {{literal, Integer}, Types};
 %%==================
 %% Erlang_Integer..Erlang_Integer
@@ -221,7 +234,7 @@ parse_type({op, _, '-', {integer, _, _}} = Integer, Types) ->
 %%
 %%      Ranges of Erlang_Integers.
 %% @end
-parse_type({type, _, range, [Low, High]}, Types) ->
+do_parse_type({type, _, range, [Low, High]}, Types) ->
     {{type, range, {{literal, Low}, {literal, High}}}, Types};
 %%======================================
 %% List
@@ -241,18 +254,18 @@ parse_type({type, _, range, [Low, High]}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, _, list, [{type, _, any, []}]}, Types) ->
+do_parse_type({type, _, list, [{type, _, any, []}]}, Types) ->
     {{type, list, any}, Types};
-parse_type({type, _, list, [ValueType0]}, Types0) ->
+do_parse_type({type, _, list, [ValueType0]}, Types0) ->
     {ValueType1, Types1} = parse_type(ValueType0, Types0),
     {{type, list, {maybe_empty, ValueType1, parse_type({type, 1, nil, []})}}, Types1};
-parse_type({type, _, maybe_improper_list, [_, _] = ValueTypes0}, Types0) ->
+do_parse_type({type, _, maybe_improper_list, [_, _] = ValueTypes0}, Types0) ->
     {ValueTypes1, Types1} = parse_type_list(ValueTypes0, Types0),
     {{type, list, list_to_tuple([maybe_empty | ValueTypes1])}, Types1};
-parse_type({type, _, nonempty_improper_list, ValueTypes0}, Types0) ->
+do_parse_type({type, _, nonempty_improper_list, ValueTypes0}, Types0) ->
     {ValueTypes1, Types1} = parse_type_list(ValueTypes0, Types0),
     {{type, list, list_to_tuple([nonempty | ValueTypes1])}, Types1};
-parse_type({type, _, nonempty_list, [ValueType0]}, Types0) ->
+do_parse_type({type, _, nonempty_list, [ValueType0]}, Types0) ->
     {ValueType1, Types1} = parse_type(ValueType0, Types0),
     {{type, list, {nonempty, ValueType1, parse_type({type, 1, nil, []})}}, Types1};
 %%======================================
@@ -269,13 +282,13 @@ parse_type({type, _, nonempty_list, [ValueType0]}, Types0) ->
 %%
 %%      A call to map() is treated as any map.
 %% @end
-parse_type({type, _, map, any}, Types) ->
+do_parse_type({type, _, map, any}, Types) ->
     {{type, map, any}, Types};
-parse_type({call, _, {atom, _, map}, []}, Types) ->
+do_parse_type({call, _, {atom, _, map}, []}, Types) ->
     {{type, map, any}, Types};
-parse_type({type, _, map, []}, Types) ->
+do_parse_type({type, _, map, []}, Types) ->
     {{type, map, empty}, Types};
-parse_type({type, _, map, MapFields}, Types0) ->
+do_parse_type({type, _, map, MapFields}, Types0) ->
     {MapFieldTypes, Types1} = parse_map_fields(MapFields, Types0),
     {{type, map, MapFieldTypes}, Types1};
 %%======================================
@@ -287,13 +300,13 @@ parse_type({type, _, map, MapFields}, Types0) ->
 %%              | {type, _, tuple, FieldTypes}    %% Typed Tuple
 %%              | {tuple, _, _}                   %% Tuple literal
 %% @end
-parse_type({type, _, tuple, any}, Types) ->
+do_parse_type({type, _, tuple, any}, Types) ->
     {{type, tuple, any}, Types};
-parse_type({call, _, {atom, _, tuple}, []}, Types) ->
+do_parse_type({call, _, {atom, _, tuple}, []}, Types) ->
     {{type, tuple, any}, Types};
-parse_type({type, _, tuple, []}, Types) ->
+do_parse_type({type, _, tuple, []}, Types) ->
     {{type, tuple, empty}, Types};
-parse_type({type, _, tuple, FieldTypes0}, Types0) ->
+do_parse_type({type, _, tuple, FieldTypes0}, Types0) ->
     {FieldTypes1, Types1} = parse_tuple_fields(FieldTypes0, Types0),
     {{type, tuple, FieldTypes1}, Types1};
 %%======================================
@@ -301,7 +314,7 @@ parse_type({type, _, tuple, FieldTypes0}, Types0) ->
 %%======================================
 %% @doc Expect :: {type, _, union, Types} %% Any Tuple
 %% @end
-parse_type({type, _, union, UnionTypes0}, Types0) ->
+do_parse_type({type, _, union, UnionTypes0}, Types0) ->
     {UnionTypes1, Types1} = parse_type_list(UnionTypes0, Types0),
     {{type, union, UnionTypes1}, Types1};
 %%======================================
@@ -313,7 +326,7 @@ parse_type({type, _, union, UnionTypes0}, Types0) ->
 %%
 %%      Calls are handled by the default call handler.
 %% @end
-parse_type({type, Line, term, []}, Types) ->
+do_parse_type({type, Line, term, []}, Types) ->
     parse_type({type, Line, any, []}, Types);
 %%======================================
 %% binary()
@@ -352,7 +365,7 @@ parse_type({type, Line, term, []}, Types) ->
 %%
 %%      Calls are handled by the default call handler.
 %% @end
-parse_type({type, Line, byte, []}, Types) ->
+do_parse_type({type, Line, byte, []}, Types) ->
     parse_type({type, Line, range, [{integer, Line, 0},
                                     {integer, Line, 255}]},
                Types);
@@ -366,7 +379,7 @@ parse_type({type, Line, byte, []}, Types) ->
 %%
 %%      Calls are handled by the default call handler.
 %% @end
-parse_type({type, Line, char, []}, Types) ->
+do_parse_type({type, Line, char, []}, Types) ->
     parse_type({type, Line, range, [{integer, Line, 0},
                                     {integer, Line, 16#10ffff}]},
                Types);
@@ -395,7 +408,7 @@ parse_type({type, Line, char, []}, Types) ->
 %%
 %%      Calls handled by List above.
 %% @end
-parse_type({type, Line, list, []}, Types) ->
+do_parse_type({type, Line, list, []}, Types) ->
     parse_type({type, Line, list, [{type, Line, any, []}]}, Types);
 %%======================================
 %% maybe_improper_list()
@@ -407,7 +420,7 @@ parse_type({type, Line, list, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, maybe_improper_list, []}, Types) ->
+do_parse_type({type, Line, maybe_improper_list, []}, Types) ->
     parse_type({type, Line, maybe_improper_list, [{type, Line, any, []}, {type, Line, any, []}]}, Types);
 %%======================================
 %% nonempty_list()
@@ -419,7 +432,7 @@ parse_type({type, Line, maybe_improper_list, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, nonempty_list, []}, Types) ->
+do_parse_type({type, Line, nonempty_list, []}, Types) ->
     parse_type({type, Line, nonempty_list, [{type, Line, any, []}]}, Types);
 %%======================================
 %% string()
@@ -431,7 +444,7 @@ parse_type({type, Line, nonempty_list, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, string, []}, Types) ->
+do_parse_type({type, Line, string, []}, Types) ->
     parse_type({type, Line, list, [{type, Line, char, []}]}, Types);
 %%======================================
 %% nonempty_string()
@@ -443,7 +456,7 @@ parse_type({type, Line, string, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, nonempty_string, []}, Types) ->
+do_parse_type({type, Line, nonempty_string, []}, Types) ->
     parse_type({type, Line, nonempty_list, [{type, Line, char, []}]}, Types);
 %%======================================
 %% iodata()
@@ -455,7 +468,7 @@ parse_type({type, Line, nonempty_string, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, iodata, []}, Types) ->
+do_parse_type({type, Line, iodata, []}, Types) ->
     parse_type({type, Line, union, [{type, Line, iolist, []},
                                     {type, Line, binary, []}]},
                Types);
@@ -475,14 +488,14 @@ parse_type({type, Line, iodata, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, iolist, []}, Types) ->
+do_parse_type({type, Line, iolist, []}, Types) ->
     Form1 = {type, Line, union, [{type, Line, byte, []},
                                  {type, Line, binary, []},
                                  {type, iolist, []}]},
     Form2 = {type, Line, union, [{type, Line, binary, []},
                                  {type, Line, nil, []}]},
     parse_type({type, Line, maybe_improper_list, [Form1, Form2]}, Types);
-parse_type({type, iolist, []} = Iolist, Types) ->
+do_parse_type({type, iolist, []} = Iolist, Types) ->
     {Iolist, Types};
 %%======================================
 %% function()
@@ -492,9 +505,9 @@ parse_type({type, iolist, []} = Iolist, Types) ->
 %%
 %%      Alias for fun().
 %% @end
-parse_type({type, Line, function, []}, Types) ->
+do_parse_type({type, Line, function, []}, Types) ->
     parse_type({type, Line, 'fun', []}, Types);
-parse_type({call, Line, {atom, _, function}, []}, Types) ->
+do_parse_type({call, Line, {atom, _, function}, []}, Types) ->
     parse_type({call, Line, {atom, Line, 'fun'}, []}, Types);
 %%======================================
 %% module()
@@ -506,7 +519,7 @@ parse_type({call, Line, {atom, _, function}, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, module, []}, Types) ->
+do_parse_type({type, Line, module, []}, Types) ->
     parse_type({type, Line, atom, []}, Types);
 %%======================================
 %% mfa()
@@ -518,7 +531,7 @@ parse_type({type, Line, module, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, mfa, []}, Types) ->
+do_parse_type({type, Line, mfa, []}, Types) ->
     parse_type({type, Line, tuple, [{type, Line, module, []},
                                     {type, Line, atom, []},
                                     {type, Line, arity, []}]},
@@ -533,7 +546,7 @@ parse_type({type, Line, mfa, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, arity, []}, Types) ->
+do_parse_type({type, Line, arity, []}, Types) ->
     parse_type({type, Line, range, [{integer, Line, 0},
                                     {integer, Line, 255}]},
                Types);
@@ -547,7 +560,7 @@ parse_type({type, Line, arity, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, identifier, []}, Types) ->
+do_parse_type({type, Line, identifier, []}, Types) ->
     parse_type({type, Line, union, [{type, Line, pid, []},
                                     {type, Line, port, []},
                                     {type, Line, reference, []}]},
@@ -562,7 +575,7 @@ parse_type({type, Line, identifier, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, node, []}, Types) ->
+do_parse_type({type, Line, node, []}, Types) ->
     parse_type({type, Line, atom, []}, Types);
 %%======================================
 %% timeout()
@@ -574,7 +587,7 @@ parse_type({type, Line, node, []}, Types) ->
 %%
 %%      Calls handled by the deafault call handler.
 %% @end
-parse_type({type, Line, timeout, []}, Types) ->
+do_parse_type({type, Line, timeout, []}, Types) ->
     parse_type({type, Line, union, [{atom, Line, 'infinity'},
                                     {type, Line, non_neg_integer, []}]},
                Types);
@@ -588,7 +601,7 @@ parse_type({type, Line, timeout, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, no_return, []}, Types) ->
+do_parse_type({type, Line, no_return, []}, Types) ->
     parse_type({type, Line, none, []}, Types);
 %%======================================
 %% non_neg_integer()
@@ -600,7 +613,7 @@ parse_type({type, Line, no_return, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, non_neg_integer, []}, Types) ->
+do_parse_type({type, Line, non_neg_integer, []}, Types) ->
     parse_type({type, Line, range, [{integer, Line, 0},
                                     {atom, Line, undefined}]},
                Types);
@@ -614,7 +627,7 @@ parse_type({type, Line, non_neg_integer, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, pos_integer, []}, Types) ->
+do_parse_type({type, Line, pos_integer, []}, Types) ->
     parse_type({type, Line, range, [{integer, Line, 1},
                                     {atom, Line, undefined}]},
                Types);
@@ -628,7 +641,7 @@ parse_type({type, Line, pos_integer, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, neg_integer, []}, Types) ->
+do_parse_type({type, Line, neg_integer, []}, Types) ->
     parse_type({type, Line, range, [{atom, Line, undefined},
                                     {op, Line, '-', {integer, Line, 1}}]},
                Types);
@@ -642,7 +655,7 @@ parse_type({type, Line, neg_integer, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, Line, nonempty_maybe_improper_list, []}, Types) ->
+do_parse_type({type, Line, nonempty_maybe_improper_list, []}, Types) ->
     parse_type({type, Line, nonempty_maybe_improper_list, [{type, Line, any, []},
                                                            {type, Line, any, []}]},
                Types);
@@ -664,7 +677,7 @@ parse_type({type, Line, nonempty_maybe_improper_list, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-parse_type({type, _, nonempty_maybe_improper_list, ValueTypes0}, Types0) ->
+do_parse_type({type, _, nonempty_maybe_improper_list, ValueTypes0}, Types0) ->
     {ValueTypes1, Types1} = parse_type_list(ValueTypes0, Types0),
     {{type, list, list_to_tuple([nonempty | ValueTypes1])}, Types1};
 %%======================================
@@ -673,7 +686,7 @@ parse_type({type, _, nonempty_maybe_improper_list, ValueTypes0}, Types0) ->
 %% @doc Expect :: {type, _, record, [Record | FieldOverrides]}
 %%              | {record, _, Record, FieldOverrides}
 %% @end
-parse_type({type, _, record, [{atom, _, Record} | RecordFields0]}, Types) ->
+do_parse_type({type, _, record, [{atom, _, Record} | RecordFields0]}, Types) ->
     RecordFields1 = lists:map(fun({type, _, field_type, [{atom, _, Field}, FieldType]}) ->
                                   {Field, parse_type(FieldType)}
                               end,
@@ -682,17 +695,17 @@ parse_type({type, _, record, [{atom, _, Record} | RecordFields0]}, Types) ->
 %%======================================
 %% Default call handler
 %%======================================
-parse_type({call, Line, {atom, _, Type}, TypeArgs}, Types) ->
+do_parse_type({call, Line, {atom, _, Type}, TypeArgs}, Types) ->
     parse_type({type, Line, Type, TypeArgs}, Types);
 %%======================================
 %% Remote call handler
 %%======================================
-parse_type({call, Line, {remote, _, Module, Type}, TypeArgs}, Types) ->
+do_parse_type({call, Line, {remote, _, Module, Type}, TypeArgs}, Types) ->
     parse_type({remote_type, Line, [Module, Type, TypeArgs]}, Types);
 %%======================================
 %% Remote handler
 %%======================================
-parse_type({remote_type, _, RemoteTypeSpec} = TypeSpec, Types0) ->
+do_parse_type({remote_type, _, RemoteTypeSpec} = TypeSpec, Types0) ->
     [{atom, _, Module},
      {atom, _, Type},
      _] = RemoteTypeSpec,
@@ -704,8 +717,10 @@ parse_type({remote_type, _, RemoteTypeSpec} = TypeSpec, Types0) ->
         #{TypeKey := RemoteType} ->
             {RemoteType, Types0};
         #{ParsedKey := true} ->
+            io:format("Could not found ~p\n~p\n", [ParsedKey, Types0]),
             parse_error({invalid_remote_type, Module, Type});
         _ ->
+            io:format("Parse Module ~p\n~p\n", [Module, erlang:process_info(self(), current_stacktrace)]),
             Types1 = parse_types(forms:read(Module)),
             Types2 = maps:fold(fun(K, V, Acc) ->
                                       Acc#{{Module, K} => V}
@@ -718,18 +733,19 @@ parse_type({remote_type, _, RemoteTypeSpec} = TypeSpec, Types0) ->
 %%======================================
 %% Default handler
 %%======================================
-parse_type({Class, _, Type, TypeArgs}, Types0) when Class =:= type orelse
+do_parse_type({Class, _, Type, TypeArgs}, Types0) when Class =:= type orelse
                                                     Class =:= user_type ->
 
     {TList, Types1} = parse_type_list(TypeArgs, Types0),
     {{type, Type, TList}, Types1};
-parse_type(Type, _) ->
+do_parse_type(Type, _) ->
     parse_error(Type).
 
 %%=========================================================
 %% parse_error
 %%=========================================================
 parse_error(Type) ->
+    io:format("Cound not parse\n~p\n", [Type]),
     error({parse_type, Type}).
 
 %%=========================================================

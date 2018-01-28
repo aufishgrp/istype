@@ -1,1 +1,0 @@
--module(istype_transform_totype_test).

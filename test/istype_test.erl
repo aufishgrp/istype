@@ -1,5 +1,7 @@
 -module(istype_test).
 
+-compile({parse_transform, istype_transform}).
+
 %% API exports
 -export([return_value/1, to_src/0]).
 

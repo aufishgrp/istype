@@ -12,10 +12,24 @@
 %%=============================================================================
 %% parse_types/1 Tests
 %%=============================================================================
+parse1_test() ->
+    Result0 = #{},
+    Result0 = istype_parser:parse_types([]),
+    
+    Result1 = #{typea => {type, atom, []}},
+    Result1 = istype_parser:parse_types([{attribute, 1, type, {typea, {type, 1, atom, []}, []}}]).
 
 %%=============================================================================
 %% parse_types/2 Tests
 %%=============================================================================
+parse2_test() ->
+    Forms0 = [{attribute, 1, type, {typea, {type, 1, atom, []}, []}}],
+    Result0 = #{typea => {type, atom, []}},
+    Result0 = istype_parser:parse_types(Forms0, #{}),
+
+    Forms1 = [{attribute, 1, type, {typeb, {type, 1, binary, []}, []}}],
+    Result1 = Result0#{typeb => {type, binary, []}},
+    Result1 = istype_parser:parse_types(Forms1, Result0).
 
 %%=============================================================================
 %% parse_type/1 Tests
@@ -263,11 +277,11 @@ neg_integer_test() ->
     ?TYPEANDCALL(Result, neg_integer).
 
 type_record_test() ->
-    Result1 = {type, record, {recorda, []}},
-    Result1 = istype_parser:parse_type({type, 1, record, [{atom, 1, recorda}]}),
+    Result1 = {type, record, {record_a, []}},
+    Result1 = istype_parser:parse_type({type, 1, record, [{atom, 1, record_a}]}),
 
-    Result2 = {type, record, {recorda, [{a, {type, float, []}}]}},
-    Result2 = istype_parser:parse_type({type, 1, record, [{atom, 1, recorda},
+    Result2 = {type, record, {record_a, [{a, {type, float, []}}]}},
+    Result2 = istype_parser:parse_type({type, 1, record, [{atom, 1, record_a},
                                                           {type, 7, field_type, [{atom, 1, a}, {type, 1, float, []}]}]}).
 remote_test() ->
     Result = {type, atom, []},
@@ -278,11 +292,11 @@ remote_test() ->
 %% parse_record/1 Tests
 %%=============================================================================
 record_test() ->
-    Result1 = {record, recorda, 2, [a], #{a => {type, any, []}}, #{a => {literal, {atom, 1, undefined}}}},
-    Result1 = istype_parser:parse_record({attribute, 1, record, {recorda, [{record_field, 1, {atom, 1, a}}]}}),
+    Result1 = {record, record_a, 2, [a], #{a => {type, any, []}}, #{a => {literal, {atom, 1, undefined}}}},
+    Result1 = istype_parser:parse_record({attribute, 1, record, {record_a, [{record_field, 1, {atom, 1, a}}]}}),
 
-    Result2 = {record, recorda, 2, [a], #{a => {type, atom, []}}, #{a => {literal, {atom, 1, undefined}}}},
-    Result2 = istype_parser:parse_record({attribute, 1, record, {recorda, [{typed_record_field, {record_field, 1, {atom, 1, a}}, {type, 1, atom, []}}]}}),
+    Result2 = {record, record_a, 2, [a], #{a => {type, atom, []}}, #{a => {literal, {atom, 1, undefined}}}},
+    Result2 = istype_parser:parse_record({attribute, 1, record, {record_a, [{typed_record_field, {record_field, 1, {atom, 1, a}}, {type, 1, atom, []}}]}}),
 
-    Result3 = {record, recorda, 2, [a], #{a => {type, atom, []}}, #{a => {literal, {atom, 1, atom}}}},
-    Result3 = istype_parser:parse_record({attribute, 1, record, {recorda, [{typed_record_field, {record_field, 1, {atom, 1, a}, {atom, 1, atom}}, {type, 1, atom, []}}]}}).
+    Result3 = {record, record_a, 2, [a], #{a => {type, atom, []}}, #{a => {literal, {atom, 1, atom}}}},
+    Result3 = istype_parser:parse_record({attribute, 1, record, {record_a, [{typed_record_field, {record_field, 1, {atom, 1, a}, {atom, 1, atom}}, {type, 1, atom, []}}]}}).
