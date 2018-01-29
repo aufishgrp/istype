@@ -6,7 +6,7 @@ match(Module, Value, Type, Expected, Options) ->
     match(Module, Value, Type, Expected, #{}, #{}, Options).
 
 match(Module, Value, Type, Expected, Types, Records, Options) ->
-    Result = Module:transform(Value, Type, Types, Records, []),
+    Result = Module:transform(Value, Type, Types, Records, Options),
     try
         Expected = Result
     catch

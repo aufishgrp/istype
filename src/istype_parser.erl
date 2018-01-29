@@ -21,7 +21,8 @@ parse_types(Forms) ->
 
 -spec parse_types(istype:forms(), istype:types()) -> istype:types().
 parse_types(Forms, Types) ->
-    lists:foldl(fun({attribute, _, type, {TypeLabel, _, _}} = Form, Acc0) ->
+    lists:foldl(fun({attribute, _, Class, {TypeLabel, _, _}} = Form, Acc0) when Class =:= type orelse
+                                                                                Class =:= opaque ->
                        {Type, Acc1} = parse_type(Form, Acc0),
                        Acc1#{TypeLabel => Type};
                    (_, Acc) ->
@@ -58,7 +59,7 @@ parse_type(Form) ->
 %%==========================================================
 -spec parse_type(istype:form(), istype:types()) -> {istype:type(), istype:types()}.
 parse_type(Form, Types) ->
-    io:format("\nParse Type\n~p\n", [Form]),
+    %%io:format("\nParse Type\n~p\n", [Form]),
     do_parse_type(Form, Types).
 
 
@@ -66,13 +67,20 @@ parse_type(Form, Types) ->
 %%      into the internal type format.
 %% @end
 %%======================================
-%% @doc attribute
+%% Attributes
+%%======================================
+%% @doc Expect :: {attribute, _, type, {_, TypeSpec, _}} |
+%%                {attribute, _, opaque, {_, TypeSpec, _}}
 %%
 %%      Form that wraps the type spec.
 %% @end
 %%======================================
 do_parse_type({attribute, _, type, {_, TypeSpec, _}}, Types) ->
     parse_type(TypeSpec, Types);
+do_parse_type({attribute, _, opaque, {_, TypeSpec, _}}, Types) ->
+    parse_type(TypeSpec, Types);
+%%======================================
+%% Variables
 %%======================================
 %% @doc var '_'
 %%
@@ -81,6 +89,15 @@ do_parse_type({attribute, _, type, {_, TypeSpec, _}}, Types) ->
 %%======================================
 do_parse_type({var, _, '_'}, Types) ->
     parse_type({type, 1, any, []}, Types);
+%%======================================
+%% @doc Variables within type specs.
+%%
+%%      Type variables that need to be overridden before
+%%      being considered the final type.
+%% @end
+%%======================================
+do_parse_type({var, _, Var}, _) ->
+    {var, Var};
 %%======================================
 %% @doc Annotated Type Name :: type()
 %%
@@ -710,24 +727,25 @@ do_parse_type({remote_type, _, RemoteTypeSpec} = TypeSpec, Types0) ->
      {atom, _, Type},
      _] = RemoteTypeSpec,
 
-     TypeKey = {Module, Type},
-     ParsedKey = {parsed, Module},
+    TypeKey = {Module, Type},
+    ParsedKey = {parsed, Module},
 
     case Types0 of
         #{TypeKey := RemoteType} ->
             {RemoteType, Types0};
         #{ParsedKey := true} ->
-            io:format("Could not found ~p\n~p\n", [ParsedKey, Types0]),
-            parse_error({invalid_remote_type, Module, Type});
+            io:format("Could not find ~p\n~p\n", [TypeKey, Types0]),
+            {parse_type({type, 1, any, []}), Types0};
         _ ->
-            io:format("Parse Module ~p\n~p\n", [Module, erlang:process_info(self(), current_stacktrace)]),
+            io:format("Parse Module ~p\n", [Module]),
             Types1 = parse_types(forms:read(Module)),
-            Types2 = maps:fold(fun(K, V, Acc) ->
-                                      Acc#{{Module, K} => V}
-                                  end,
-                                  Types0#{{parsed, Module} => true},
-                                  Types1),
-
+            Types2 = maps:fold(fun(K, V, Acc) when is_atom(K) ->
+                                      Acc#{{Module, K} => V};
+                                  (_, _, Acc) ->
+                                      Acc
+                               end,
+                               Types0#{{parsed, Module} => true},
+                               Types1),
             parse_type(TypeSpec, Types2)
     end;
 %%======================================
