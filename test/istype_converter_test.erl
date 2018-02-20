@@ -14,4 +14,4 @@ convert_test() ->
                      {map, 1, []},
                      {map, 1, []},
                      {nil, 1}]},
-    istype_test_util:match(istype_converter, Value, Type0, Expected0, []).
+    istype_test_util:match(istype_converter, Value, Expected0, Type0, []).

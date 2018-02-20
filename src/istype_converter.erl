@@ -1,20 +1,19 @@
 -module(istype_converter).
 
--export([transform/3, transform/5]).
+-export([transform/5, transform/7]).
 
 %%====================================================================
 %% transform functions
 %%====================================================================
 %% transform
 %%==========================================================
-transform(Value, Type, Options) ->
-    transform(Value, Type, #{}, #{}, Options).
+transform(Module, Line, Value, Type, Options) ->
+    transform(Module, Line, Value, Type, #{}, #{}, Options).
 
--spec transform(Value :: istype:form(), Type :: istype:form(), istype:types(), istype:records(), istype:options()) -> istype:form().
+-spec transform(Module :: module(), Line :: integer(), Value :: istype:form(), Type :: istype:form(), istype:types(), istype:records(), istype:options()) -> istype:form().
 %% @doc 
 %% @end
-transform(Value, Type, Types, Records, Options) ->
-    Line = element(2, Value),
+transform(_, Line, Value, Type, Types, Records, Options) ->
     {call, Line,
         {remote, Line,
             {atom, Line, istype_lib},

@@ -1,7 +1,14 @@
 -module(istype_parser).
 
--export([parse_types/1, parse_types/2, parse_type/1,
+-export([parse_types/1, parse_types/2,
          parse_records/1, parse_records/2, parse_records/3, parse_record/1]).
+
+-ifdef(EUNIT).
+-export([parse_type/1,
+         type/1, type/2, type/3,
+         literal/1]).
+-endif.
+
 
 %%=============================================================================
 %% parsing functions
@@ -19,12 +26,16 @@
 parse_types(Forms) ->
     parse_types(Forms, #{}).
 
--spec parse_types(istype:forms(), istype:types()) -> istype:types().
+-spec parse_types(istype:forms() | module(), istype:types()) -> istype:types().
+parse_types(Module, Types) when is_atom(Module) ->
+    parse_types(forms:read(Module), Types);
 parse_types(Forms, Types) ->
-    lists:foldl(fun({attribute, _, Class, {TypeLabel, _, _}} = Form, Acc0) when Class =:= type orelse
-                                                                                Class =:= opaque ->
+    {attribute, _, module, Module} = lists:keyfind(module, 3, Forms),
+    lists:foldl(fun({attribute, _, Class, {TypeLabel, _, TypeParams}} = Form, Acc0) when Class =:= type orelse
+                                                                                         Class =:= opaque ->
                        {Type, Acc1} = parse_type(Form, Acc0),
-                       Acc1#{TypeLabel => Type};
+                       Key = {Module, TypeLabel, length(TypeParams)},
+                       Acc1#{Key => Type};
                    (_, Acc) ->
                        Acc
                 end,
@@ -59,9 +70,8 @@ parse_type(Form) ->
 %%==========================================================
 -spec parse_type(istype:form(), istype:types()) -> {istype:type(), istype:types()}.
 parse_type(Form, Types) ->
-    %%io:format("\nParse Type\n~p\n", [Form]),
+    io:format("\nParse Type\n~p\n", [Form]),
     do_parse_type(Form, Types).
-
 
 %% @doc Converts a Type, calls representing a type, and literals
 %%      into the internal type format.
@@ -75,10 +85,12 @@ parse_type(Form, Types) ->
 %%      Form that wraps the type spec.
 %% @end
 %%======================================
-do_parse_type({attribute, _, type, {_, TypeSpec, _}}, Types) ->
-    parse_type(TypeSpec, Types);
-do_parse_type({attribute, _, opaque, {_, TypeSpec, _}}, Types) ->
-    parse_type(TypeSpec, Types);
+do_parse_type({attribute, _, type, {_, TypeSpec, TypeParams}}, Types0) ->
+    {Type, Types1} = parse_type(TypeSpec, Types0),
+    {set_type_params(TypeParams, Type), Types1};
+do_parse_type({attribute, _, opaque, {_, TypeSpec, TypeParams}}, Types0) ->
+    {Type, Types1} = parse_type(TypeSpec, Types0),
+    {set_type_params(TypeParams, Type), Types1};
 %%======================================
 %% Variables
 %%======================================
@@ -96,8 +108,8 @@ do_parse_type({var, _, '_'}, Types) ->
 %%      being considered the final type.
 %% @end
 %%======================================
-do_parse_type({var, _, Var}, _) ->
-    {var, Var};
+do_parse_type({var, _, _} = Var, Types) ->
+    {Var, Types};
 %%======================================
 %% @doc Annotated Type Name :: type()
 %%
@@ -157,11 +169,11 @@ do_parse_type({ann_type, _, [_, Type]}, Types) ->
 %%      a literal.
 %% @end
 do_parse_type({nil, _} = Nil, Types) ->
-    {{literal, Nil}, Types};
+    {literal(Nil), Types};
 do_parse_type({type, Line, nil, []}, Types) ->
-    {{literal, {nil, Line}}, Types};
+    {literal({nil, Line}), Types};
 do_parse_type({call, Line, {atom, _, nil}, []}, Types) ->
-    {{literal, {nil, Line}}, Types};
+    {literal({nil, Line}), Types};
 %%======================================
 %% Atom
 %%======================================
@@ -179,7 +191,7 @@ do_parse_type({call, Line, {atom, _, nil}, []}, Types) ->
 %%      Erlang_Atoms need to be treated as literals.
 %% @end
 do_parse_type({atom, _, _} = Atom, Types) ->
-    {{literal, Atom}, Types};
+    {literal(Atom), Types};
 %%======================================
 %% Bitstring
 %%======================================
@@ -192,9 +204,9 @@ do_parse_type({atom, _, _} = Atom, Types) ->
 %%      be found within type specs.
 %% @end
 do_parse_type({type, _, binary, [{integer, _, M}, {integer, _, N}]}, Types) ->
-    {{type, bitstring, {M, N}}, Types};
+    {type(bitstring, {M, N}), Types};
 do_parse_type({bin, _, []}, Types) ->
-    {{type, bitstring, {0, 0}}, Types};
+    {type(bitstring, {0, 0}), Types};
 %%======================================
 %% float()
 %%======================================
@@ -213,16 +225,16 @@ do_parse_type({bin, _, []}, Types) ->
 %%              | {type, _, 'fun', [{type, _, product, ParameterTypes}, ReturnType]}
 %% @end
 do_parse_type({type, _, 'fun', []}, Types) ->
-    {{type, 'fun', any}, Types};
+    {type('fun', any), Types};
 do_parse_type({call, _, {atom, _, 'fun'}, []}, Types) ->
-    {{type, 'fun', any}, Types};
+    {type('fun', any), Types};
 do_parse_type({type, _, 'fun', [{type, _, any}, ReturnType0]}, Types0) ->
     {ReturnType1, Types1} = parse_type(ReturnType0, Types0),
-    {{type, 'fun', {any, ReturnType1}}, Types1};
+    {type('fun', {any, ReturnType1}), Types1};
 do_parse_type({type, _, 'fun', [{type, _, product, ParameterTypes0}, ReturnType0]}, Types0) ->
     {ReturnType1, Types1} = parse_type(ReturnType0, Types0),
     {ParameterTypes1, Types2} = parse_type_list(ParameterTypes0, Types1),
-    {{type, 'fun', {ParameterTypes1, ReturnType1}}, Types2};
+    {type('fun', {ParameterTypes1, ReturnType1}), Types2};
 %%======================================
 %% Integer
 %%======================================
@@ -241,9 +253,9 @@ do_parse_type({type, _, 'fun', [{type, _, product, ParameterTypes0}, ReturnType0
 %%      Erlang_Integers need to be treated as literals.
 %% @end
 do_parse_type({integer, _, _} = Integer, Types) ->
-    {{literal, Integer}, Types};
+    {literal(Integer), Types};
 do_parse_type({op, _, '-', {integer, _, _}} = Integer, Types) ->
-    {{literal, Integer}, Types};
+    {literal(Integer), Types};
 %%==================
 %% Erlang_Integer..Erlang_Integer
 %%==================
@@ -252,7 +264,7 @@ do_parse_type({op, _, '-', {integer, _, _}} = Integer, Types) ->
 %%      Ranges of Erlang_Integers.
 %% @end
 do_parse_type({type, _, range, [Low, High]}, Types) ->
-    {{type, range, {{literal, Low}, {literal, High}}}, Types};
+    {type(range, {{literal, Low}, {literal, High}}), Types};
 %%======================================
 %% List
 %%======================================
@@ -272,19 +284,19 @@ do_parse_type({type, _, range, [Low, High]}, Types) ->
 %%      Calls handled by the default call handler.
 %% @end
 do_parse_type({type, _, list, [{type, _, any, []}]}, Types) ->
-    {{type, list, any}, Types};
+    {type(list, any), Types};
 do_parse_type({type, _, list, [ValueType0]}, Types0) ->
     {ValueType1, Types1} = parse_type(ValueType0, Types0),
-    {{type, list, {maybe_empty, ValueType1, parse_type({type, 1, nil, []})}}, Types1};
+    {type(list, {maybe_empty, ValueType1, parse_type({type, 1, nil, []})}), Types1};
 do_parse_type({type, _, maybe_improper_list, [_, _] = ValueTypes0}, Types0) ->
     {ValueTypes1, Types1} = parse_type_list(ValueTypes0, Types0),
-    {{type, list, list_to_tuple([maybe_empty | ValueTypes1])}, Types1};
+    {type(list, list_to_tuple([maybe_empty | ValueTypes1])), Types1};
 do_parse_type({type, _, nonempty_improper_list, ValueTypes0}, Types0) ->
     {ValueTypes1, Types1} = parse_type_list(ValueTypes0, Types0),
-    {{type, list, list_to_tuple([nonempty | ValueTypes1])}, Types1};
+    {type(list, list_to_tuple([nonempty | ValueTypes1])), Types1};
 do_parse_type({type, _, nonempty_list, [ValueType0]}, Types0) ->
     {ValueType1, Types1} = parse_type(ValueType0, Types0),
-    {{type, list, {nonempty, ValueType1, parse_type({type, 1, nil, []})}}, Types1};
+    {type(list, {nonempty, ValueType1, parse_type({type, 1, nil, []})}), Types1};
 %%======================================
 %% Map
 %%======================================
@@ -300,14 +312,14 @@ do_parse_type({type, _, nonempty_list, [ValueType0]}, Types0) ->
 %%      A call to map() is treated as any map.
 %% @end
 do_parse_type({type, _, map, any}, Types) ->
-    {{type, map, any}, Types};
+    {type(map, any), Types};
 do_parse_type({call, _, {atom, _, map}, []}, Types) ->
-    {{type, map, any}, Types};
+    {type(map, any), Types};
 do_parse_type({type, _, map, []}, Types) ->
-    {{type, map, empty}, Types};
+    {type(map, empty), Types};
 do_parse_type({type, _, map, MapFields}, Types0) ->
     {MapFieldTypes, Types1} = parse_map_fields(MapFields, Types0),
-    {{type, map, MapFieldTypes}, Types1};
+    {type(map, MapFieldTypes), Types1};
 %%======================================
 %% Tuple
 %%======================================
@@ -318,14 +330,14 @@ do_parse_type({type, _, map, MapFields}, Types0) ->
 %%              | {tuple, _, _}                   %% Tuple literal
 %% @end
 do_parse_type({type, _, tuple, any}, Types) ->
-    {{type, tuple, any}, Types};
+    {type(tuple, any), Types};
 do_parse_type({call, _, {atom, _, tuple}, []}, Types) ->
-    {{type, tuple, any}, Types};
+    {type(tuple, any), Types};
 do_parse_type({type, _, tuple, []}, Types) ->
-    {{type, tuple, empty}, Types};
+    {type(tuple, empty), Types};
 do_parse_type({type, _, tuple, FieldTypes0}, Types0) ->
     {FieldTypes1, Types1} = parse_tuple_fields(FieldTypes0, Types0),
-    {{type, tuple, FieldTypes1}, Types1};
+    {type(tuple, FieldTypes1), Types1};
 %%======================================
 %% Union
 %%======================================
@@ -333,7 +345,7 @@ do_parse_type({type, _, tuple, FieldTypes0}, Types0) ->
 %% @end
 do_parse_type({type, _, union, UnionTypes0}, Types0) ->
     {UnionTypes1, Types1} = parse_type_list(UnionTypes0, Types0),
-    {{type, union, UnionTypes1}, Types1};
+    {type(union, UnionTypes1), Types1};
 %%======================================
 %% term()
 %%======================================
@@ -512,8 +524,8 @@ do_parse_type({type, Line, iolist, []}, Types) ->
     Form2 = {type, Line, union, [{type, Line, binary, []},
                                  {type, Line, nil, []}]},
     parse_type({type, Line, maybe_improper_list, [Form1, Form2]}, Types);
-do_parse_type({type, iolist, []} = Iolist, Types) ->
-    {Iolist, Types};
+do_parse_type({type, iolist, []}, Types) ->
+    {type(iolist, []), Types};
 %%======================================
 %% function()
 %%======================================
@@ -696,7 +708,7 @@ do_parse_type({type, Line, nonempty_maybe_improper_list, []}, Types) ->
 %% @end
 do_parse_type({type, _, nonempty_maybe_improper_list, ValueTypes0}, Types0) ->
     {ValueTypes1, Types1} = parse_type_list(ValueTypes0, Types0),
-    {{type, list, list_to_tuple([nonempty | ValueTypes1])}, Types1};
+    {type(list, list_to_tuple([nonempty | ValueTypes1])), Types1};
 %%======================================
 %% Record
 %%======================================
@@ -708,7 +720,7 @@ do_parse_type({type, _, record, [{atom, _, Record} | RecordFields0]}, Types) ->
                                   {Field, parse_type(FieldType)}
                               end,
                               RecordFields0),
-    {{type, record, {Record, RecordFields1}}, Types};
+    {type(record, {Record, RecordFields1}), Types};
 %%======================================
 %% Default call handler
 %%======================================
@@ -738,7 +750,7 @@ do_parse_type({remote_type, _, RemoteTypeSpec} = TypeSpec, Types0) ->
             {parse_type({type, 1, any, []}), Types0};
         _ ->
             io:format("Parse Module ~p\n", [Module]),
-            Types1 = parse_types(forms:read(Module)),
+            Types1 = parse_types(Module),
             Types2 = maps:fold(fun(K, V, Acc) when is_atom(K) ->
                                       Acc#{{Module, K} => V};
                                   (_, _, Acc) ->
@@ -752,10 +764,10 @@ do_parse_type({remote_type, _, RemoteTypeSpec} = TypeSpec, Types0) ->
 %% Default handler
 %%======================================
 do_parse_type({Class, _, Type, TypeArgs}, Types0) when Class =:= type orelse
-                                                    Class =:= user_type ->
+                                                       Class =:= user_type ->
 
     {TList, Types1} = parse_type_list(TypeArgs, Types0),
-    {{type, Type, TList}, Types1};
+    {type(Type, TList), Types1};
 do_parse_type(Type, _) ->
     parse_error(Type).
 
@@ -865,9 +877,9 @@ parse_record_field({record_field, _, {atom, _, RecordField}, _}) ->
 parse_record_field_default({typed_record_field, RecordField, _}) ->
     parse_record_field_default(RecordField);
 parse_record_field_default({record_field, Line, _}) ->
-    {literal, {atom, Line, undefined}};
+    literal({atom, Line, undefined});
 parse_record_field_default({record_field, _, _, Default}) ->
-    {literal, Default}.
+    literal(Default).
 
 %% @doc Extract the type from a record field.
 %% @end
@@ -876,3 +888,32 @@ parse_record_field_type({typed_record_field, _, Type}, Types) ->
 parse_record_field_type(_, Types) ->
     parse_type({type, 1, any, []}, Types).
 
+%%=========================================================
+%% type
+%%=========================================================
+-spec type(atom()) -> istype:type().
+type(Type) ->
+    type(Type, []).
+
+-spec type(atom(), istype:typespec()) -> istype:type().
+type(Type, TypeSpec) ->
+    type(Type, TypeSpec, []).
+
+-spec type(atom(), istype:typespec(), list()) -> istype:type().
+type(Type, TypeSpec, TypeParams) ->
+    {type, Type, TypeSpec, TypeParams}.
+
+-spec set_type_params(istype:forms(), istype:type()) -> istype:type().
+set_type_params(TypeParams, {type, Type, TypeSpec, _}) ->
+    {type, Type, TypeSpec, TypeParams}.
+
+-spec get_type_params(istype:type()) -> istype:forms().
+get_type_params({type, _, _, Params}) ->
+    Params.
+
+%%=========================================================
+%% literal
+%%=========================================================
+-spec literal(istype:form()) -> istype:literal().
+literal(Form) ->
+    {literal, Form}.

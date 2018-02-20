@@ -1,14 +1,17 @@
 -module(istype_test_util).
 
+-include_lib("eunit/include/eunit.hrl").
+
 -export([match/5, match/7]).
 
-match(Module, Value, Type, Expected, Options) ->
-    match(Module, Value, Type, Expected, #{}, #{}, Options).
+match(Module, Value, Expected, Type, Options) ->
+    match(Module, Value, Expected, Type, #{}, #{}, Options).
 
-match(Module, Value, Type, Expected, Types, Records, Options) ->
-    Result = Module:transform(Value, Type, Types, Records, Options),
+match(Module, Value, Expected, Type, Types, Records, Options) ->
+    Line = element(2, Value),
+    Result = Module:transform(Module, Line, Value, Type, Types, Records, Options),
     try
-        Expected = Result
+        ?assertEqual(Expected, Result)
     catch
         _:_ ->
             io:format("\n++++++++++++++++", []),
