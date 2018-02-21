@@ -14,9 +14,9 @@
 -type records()    :: #{atom() => record()}.
 
 -export_types([form/0, forms/0,
-	           literal/0,
-	           type/0, types/0, type_spec/0,
-	           record/0, records/0]).
+               literal/0,
+               type/0, types/0, type_spec/0,
+               record/0, records/0]).
 
 %%====================================================================
 %% istype functions

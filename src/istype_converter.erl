@@ -10,8 +10,8 @@
 transform(Module, Line, Value, Type, Options) ->
     transform(Module, Line, Value, Type, #{}, #{}, Options).
 
--spec transform(Module :: module(), Line :: integer(), Value :: istype:form(), Type :: istype:form(), istype:types(), istype:records(), istype:options()) -> istype:form().
-%% @doc 
+-spec transform(module(), integer(), istype:form(), istype:form(), istype:types(), istype:records(), istype:options()) -> istype:form().
+%% @doc
 %% @end
 transform(_, Line, Value, Type, Types, Records, Options) ->
     {call, Line,

@@ -54,7 +54,7 @@ atom_test() ->
     Type0 = istype_parser:type(bitstring, {M0, N0}),
     Expected0 = {op, 1, '=:=', Value, {bin, 1, []}},
     istype_test_util:match(istype_validator, Value, Expected0, Type0, []),
-    
+
     M1 = 7,
     N1 = 0,
     Type1 = istype_parser:type(bitstring, {M1, N1}),
@@ -75,7 +75,7 @@ atom_test() ->
                             {call, 1, {atom, 1, bit_size}, [Value]},
                             {integer, 1, N2}},
                         {integer, 1, M2}}},
-    istype_test_util:match(istype_validator, Value, Expected2, Type2, []),                        
+    istype_test_util:match(istype_validator, Value, Expected2, Type2, []),
 
     M3 = 7,
     N3 = 7,
@@ -144,7 +144,7 @@ integer_test() ->
                     {op, 1, '<',
                         {integer, 1, 0},
                         {call, 1, {atom, 1, length}, [Value]}}},
-    istype_test_util:match(istype_validator, Value, Expected2, Type2, []),        
+    istype_test_util:match(istype_validator, Value, Expected2, Type2, []),
 
     Type3 = istype_parser:type(list, {nonempty,
                                       istype_parser:type(any),
@@ -204,7 +204,7 @@ integer_test() ->
 
 'Union_test'() ->
     Value = {atom, 1, atom},
-    
+
     Type = istype_parser:type(union, [istype_parser:type(atom),
                                       istype_parser:literal({nil, 1})]),
     Expected = {op, 1, 'orelse',
@@ -222,7 +222,7 @@ record_test() ->
                        b => istype_parser:literal({nil, 1}),
                        c => istype_parser:literal({nil, 1})},
 
-    RecordInfo = {3, [a,b,c], RecordTypes, RecordDefaults},
+    RecordInfo = {3, [a, b, c], RecordTypes, RecordDefaults},
     Records = #{record_a => RecordInfo},
 
     Type0 = istype_parser:type(record, {record_a, []}),
@@ -230,7 +230,7 @@ record_test() ->
                     {call, 1, {atom, 1, is_record}, [{atom, 1, atom},
                                                      {atom, 1, record_a},
                                                      {integer, 1, 3}]},
-                    {op,1,'andalso',
+                    {op, 1, 'andalso',
                         {call, 1, {atom, 1, is_atom}, [{record_field, 1, {atom, 1, atom}, record_a, {atom, 1, a}}]},
                         {op, 1, 'andalso',
                             {call, 1, {atom, 1, is_atom}, [{record_field, 1, {atom, 1, atom}, record_a, {atom, 1, b}}]},
@@ -250,7 +250,7 @@ custom_test() ->
 
     Type = istype_parser:type(custom),
     Types = #{{istype_validator, custom, 0} => istype_parser:type(atom)},
-    
+
     Expected = {call, 1, {atom, 1, is_atom}, [Value]},
     istype_test_util:match(istype_validator, Value, Expected, Type, Types, #{}, []).
 

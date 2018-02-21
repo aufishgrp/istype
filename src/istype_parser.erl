@@ -748,12 +748,9 @@ do_parse_type({remote_type, _, RemoteTypeSpec} = TypeSpec, Types0) ->
         #{TypeKey := RemoteType} ->
             {RemoteType, Types0};
         #{ParsedKey := true} ->
-            io:format("\nCould not find ~p\n~p\n", [TypeKey, Types0]),
             {parse_type({type, 1, any, []}), Types0};
         _ ->
-            io:format("Parse Module ~p\n", [Module]),
             Types1 = parse_types(Module),
-            io:format("Parsed\n~p\n", [Types1]),
             Types2 = maps:merge(Types0#{ParsedKey => true}, Types1),
             parse_type(TypeSpec, Types2)
     end;
@@ -772,7 +769,6 @@ do_parse_type(Type, _) ->
 %% parse_error
 %%=========================================================
 parse_error(Type) ->
-    io:format("Cound not parse\n~p\n", [Type]),
     error({parse_type, Type}).
 
 %%=========================================================
