@@ -24,7 +24,7 @@ Transform that generates guard friendly type checking statements based on the ty
 
 ### Value istype
 
-```
+```erlang
 -type timeout() :: integer() || infinity.
 
 %% Before transform
@@ -36,7 +36,7 @@ is_integer(Value) orelse Value =:= infinity.
 
 The expression generated to validate type is generated in an in order manner.
 
-```
+```erlang
 -type timeout0() :: integer() || infinity.
 -type timeout1() :: infinity || integer().
 
@@ -53,7 +53,7 @@ Value1 =:= infinity orelse is_integer(Value1).
 
 ### Expression istype
 
-```
+```erlang
 -type timeout() :: integer() || infinity.
 
 %% Before transform
@@ -68,7 +68,7 @@ end.
 
 When an expression is provided to istype, it is evaluated prior to any checks being processed. This prevents side effects from accidentally processing multiple times. 
 
-```
+```erlang
 -type timeout() :: integer() || infinity.
 
 %% Before transform
@@ -82,7 +82,7 @@ Exceptions are made for any BIF that would be allowed in a guard statement. This
 
 ### Tuple istype
 
-```
+```erlang
 -type tuple0() :: {atom}.
 
 %% Before transform
@@ -94,7 +94,7 @@ is_tuple(Value) andalso size(Value) =:= 1 andalso element(1, Value) =:= atom.
 
 When a type specifies a tuple a specific tuple format as a primitive the arity and field types are also checked.
 
-```
+```erlang
 %% Before transform
 istype(Value, tuple()).
 
@@ -106,7 +106,7 @@ The `tuple()` type is treated as any tuple.
 
 ### Record istype
 
-```
+```erlang
 -record(record0, {a :: integer(), b}).
 
 -type record0() :: #record0{}.
@@ -121,7 +121,7 @@ is_tuple(Value) andalso size(Value) =:= 3 andalso is_integer(Value#record0.a).
 As with tuples records are checked against arity and field types.
 
 ### Nested types
-```
+```erlang
 -type timeout() :: integer() | infinity.
 -type tuple0() :: {timeout()}.
 
@@ -140,7 +140,7 @@ Transform that asserts that the value is the specified type. Functionally the sa
 Transform that enables conversion to custom types. Generates a call to totype:convert/3 with the nested type specs needed for type conversion.
 
 ### Value totype
-```
+```erlang
 -type timeout() :: integer().
 
 1 = totype("1", timeout()).
@@ -150,7 +150,7 @@ Transform that enables conversion to custom types. Generates a call to totype:co
 
 Type conversion looks at the input given for the target type and determines how to convert.
 
-```
+```erlang
 -type type0() :: binary() | list().
 -type type1() :: list() | binary().
 
@@ -161,7 +161,7 @@ Type conversion looks at the input given for the target type and determines how 
 When converting to a type that is the union of multiple types the first valid conversion is returned.
 
 ### Records totype
-```
+```erlang
 -record(record0, {a = 0 :: integer()}).
 -type record0() :: #record0{}.
 
@@ -172,7 +172,7 @@ When converting to a type that is the union of multiple types the first valid co
 
 Records can be generated from maps and proplists. If a map or list contains a key that is not present in the record that value is dropped silently.
 
-```
+```erlang
 -record(record0, {a = 0 :: integer()}).
 -record(record1, {a = <<"">> :: binary()}).
 
@@ -185,7 +185,7 @@ Records can be generated from maps and proplists. If a map or list contains a ke
 
 Records can be converted to other records. As with lists and maps only the shared keys are copied.
 
-```
+```erlang
 -record(record0, {a = 0 :: integer()}).
 
 #{a => 2} = totype(#record{a = 2}, map()).
