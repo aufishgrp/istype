@@ -5,10 +5,12 @@
 
 -ifdef(EUNIT).
 -export([parse_type/1,
+         resolve_type/2,
          type/1, type/2, type/3,
          literal/1]).
 -endif.
 
+-include("istype.hrl").
 
 %%=============================================================================
 %% parsing functions
@@ -31,16 +33,17 @@ parse_types(Module, Types) when is_atom(Module) ->
     parse_types(forms:read(Module), Types);
 parse_types(Forms, Types) ->
     {attribute, _, module, Module} = lists:keyfind(module, 3, Forms),
-    lists:foldl(fun({attribute, _, Class, {TypeLabel, _, TypeParams}} = Form, Acc0) when Class =:= type orelse
-                                                                                         Class =:= opaque ->
-                       {Type, Acc1} = parse_type(Form, Acc0),
-                       Key = {Module, TypeLabel, length(TypeParams)},
-                       Acc1#{Key => Type};
-                   (_, Acc) ->
-                       Acc
-                end,
-                Types,
-                Forms).
+    ParsedTypes = lists:foldl(fun({attribute, _, Class, {TypeLabel, _, TypeParams}} = Form, Acc0) when Class =:= type orelse
+                                                                                                       Class =:= opaque ->
+                                     {Type, Acc1} = parse_type(Form, Acc0),
+                                     Key = {Module, TypeLabel, length(TypeParams)},
+                                     Acc1#{Key => set_type_module(Module, Type)};
+                                 (_, Acc) ->
+                                     Acc
+                              end,
+                              Types,
+                              Forms),
+    resolve_types(ParsedTypes).
 
 %%=========================================================
 %% parse_type_list
@@ -70,7 +73,6 @@ parse_type(Form) ->
 %%==========================================================
 -spec parse_type(istype:form(), istype:types()) -> {istype:type(), istype:types()}.
 parse_type(Form, Types) ->
-    io:format("\nParse Type\n~p\n", [Form]),
     do_parse_type(Form, Types).
 
 %% @doc Converts a Type, calls representing a type, and literals
@@ -737,27 +739,22 @@ do_parse_type({call, Line, {remote, _, Module, Type}, TypeArgs}, Types) ->
 do_parse_type({remote_type, _, RemoteTypeSpec} = TypeSpec, Types0) ->
     [{atom, _, Module},
      {atom, _, Type},
-     _] = RemoteTypeSpec,
+     TypeParams] = RemoteTypeSpec,
 
-    TypeKey = {Module, Type},
+    TypeKey = {Module, Type, length(TypeParams)},
     ParsedKey = {parsed, Module},
 
     case Types0 of
         #{TypeKey := RemoteType} ->
             {RemoteType, Types0};
         #{ParsedKey := true} ->
-            io:format("Could not find ~p\n~p\n", [TypeKey, Types0]),
+            io:format("\nCould not find ~p\n~p\n", [TypeKey, Types0]),
             {parse_type({type, 1, any, []}), Types0};
         _ ->
             io:format("Parse Module ~p\n", [Module]),
             Types1 = parse_types(Module),
-            Types2 = maps:fold(fun(K, V, Acc) when is_atom(K) ->
-                                      Acc#{{Module, K} => V};
-                                  (_, _, Acc) ->
-                                      Acc
-                               end,
-                               Types0#{{parsed, Module} => true},
-                               Types1),
+            io:format("Parsed\n~p\n", [Types1]),
+            Types2 = maps:merge(Types0#{ParsedKey => true}, Types1),
             parse_type(TypeSpec, Types2)
     end;
 %%======================================
@@ -873,6 +870,7 @@ parse_record_field({record_field, _, {atom, _, RecordField}}) ->
 parse_record_field({record_field, _, {atom, _, RecordField}, _}) ->
     RecordField.
 
+%% @doc Extract the default from a record field.
 %% @end
 parse_record_field_default({typed_record_field, RecordField, _}) ->
     parse_record_field_default(RecordField);
@@ -895,21 +893,23 @@ parse_record_field_type(_, Types) ->
 type(Type) ->
     type(Type, []).
 
--spec type(atom(), istype:typespec()) -> istype:type().
+-spec type(atom(), istype:type_spec()) -> istype:type().
 type(Type, TypeSpec) ->
     type(Type, TypeSpec, []).
 
--spec type(atom(), istype:typespec(), list()) -> istype:type().
+-spec type(atom(), istype:type_spec(), list()) -> istype:type().
 type(Type, TypeSpec, TypeParams) ->
-    {type, Type, TypeSpec, TypeParams}.
+    #type{type = Type,
+          spec = TypeSpec,
+          params = TypeParams}.
 
 -spec set_type_params(istype:forms(), istype:type()) -> istype:type().
-set_type_params(TypeParams, {type, Type, TypeSpec, _}) ->
-    {type, Type, TypeSpec, TypeParams}.
+set_type_params(TypeParams, Type) ->
+    Type#type{params = TypeParams}.
 
--spec get_type_params(istype:type()) -> istype:forms().
-get_type_params({type, _, _, Params}) ->
-    Params.
+-spec set_type_module(module(), istype:type()) -> istype:type().
+set_type_module(Module, Type) ->
+    Type#type{module = Module}.
 
 %%=========================================================
 %% literal
@@ -917,3 +917,75 @@ get_type_params({type, _, _, Params}) ->
 -spec literal(istype:form()) -> istype:literal().
 literal(Form) ->
     {literal, Form}.
+
+%%=========================================================
+%% resolve_types
+%%=========================================================
+-spec resolve_types(istype:types()) -> istype:types().
+%% @doc Resolves the parameterized types into thier primitives.
+%% @end
+resolve_types(Types0) ->
+    Types1 = maps:fold(fun(K, V, Acc) ->
+                           Acc#{K => resolve_type(V, Types0)}
+                       end,
+                       #{},
+                       Types0),
+    maps:merge(Types0, Types1).
+
+%%=========================================================
+%% resolve_type
+%%=========================================================
+-spec resolve_type(istype:type(), istype:types()) -> istype:type().
+%% @doc Resolves a parameterized type into its primitives.
+%% @end
+resolve_type(Type, Types) when is_list(Type#type.spec) ->
+    Arity = length(Type#type.spec),
+    Key = {Type#type.module, Type#type.type, Arity},
+    case Types of
+        #{Key := ResolvedType} ->
+            %% Resolve parameters and resolve the resulting type
+            resolve_type(resolve_parameters(ResolvedType, Type#type.spec), Types);
+        _ when Arity =:= 0 ->
+            %% If the type is not found but the arity is 0 then there are no
+            %% parameters to resolve.
+            Type
+    end;
+%% @doc Types can only be resolved if the spec is a list.
+%% @end
+resolve_type(Type, _) ->
+    Type.
+
+%% @doc Map the variables in the type spec to the
+%%      parameters the type takes.
+%% @end
+resolve_parameters(Type, Parameters) ->
+    %% Shorten {var, Line, Var} to {var, Var} as the line number will cause issues.
+    TypeParams = lists:map(fun({var, _, Var}) ->
+                                  {var, Var};
+                              (X) ->
+                                  X
+                           end,
+                           Type#type.params),
+    %% Generate map of variables to replacements
+    ParameterMap = maps:from_list(lists:zip(TypeParams, Parameters)),
+    %% Update the type spec
+    TypeSpec = update_type_spec(Type#type.spec, ParameterMap),
+    %% Update type
+    Type#type{spec = TypeSpec, params = []}.
+
+%% @doc Iterates through the type spec and replaces the variables with the provided parameters.
+%% @end
+update_type_spec({var, _, Label} = Var, Parameters) ->
+    Key = {var, Label},
+    case Parameters of
+        #{Key := Type} ->
+            Type;
+        _ ->
+            Var
+    end;
+update_type_spec(Spec, Parameters) when is_list(Spec) ->
+    lists:map(fun(X) -> update_type_spec(X, Parameters) end, Spec);
+update_type_spec(Spec, Parameters) when is_tuple(Spec) ->
+    list_to_tuple(lists:map(fun(X) -> update_type_spec(X, Parameters) end, tuple_to_list(Spec)));
+update_type_spec(Spec, _) ->
+    Spec.

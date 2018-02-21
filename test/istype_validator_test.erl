@@ -253,3 +253,31 @@ custom_test() ->
     
     Expected = {call, 1, {atom, 1, is_atom}, [Value]},
     istype_test_util:match(istype_validator, Value, Expected, Type, Types, #{}, []).
+
+parameterized_test() ->
+    Value = {atom, 1, atom},
+
+    TypeA = istype_parser:type(tuple, {1, [{1, {var, 1, 'A'}}]}, [{var, 1, 'A'}]),
+    TypeB = istype_parser:type(type_a, [{var, 1, 'B'}], [{var, 1, 'B'}]),
+    TypeC = istype_parser:type(type_b, [istype_parser:type(atom)], []),
+    Types = #{{istype_validator, type_a, 1} => TypeA,
+              {istype_validator, type_b, 1} => TypeB,
+              {istype_validator, type_c, 0} => TypeC},
+
+    Type0 = istype_parser:type(type_c),
+    Expected0 = {call, 1, {atom, 1, is_atom}, [Value]},
+
+    istype_test_util:match(istype_validator, Value, Expected0, Type0, Types, #{}, []).
+
+
+
+
+
+
+
+
+
+
+
+
+

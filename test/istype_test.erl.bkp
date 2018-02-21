@@ -110,10 +110,11 @@
 %% @end
 return_value(Value) -> Value.
 
--type remote_a() :: istype:remote().
--type remote_b() :: istype:remote().
+-type remote_a() :: istype_remote:type_a().
+-type remote_b() :: istype_remote:type_b(atom()).
+-type remote_c() :: istype_remote:type_c().
 remote_test() ->
-  true = istype(apple, istype:remote()).
+  true = istype({apple}, istype_remote:type_a()).
 
 %% @doc Assure that the assertion transform works as expected.
 assert_test() ->

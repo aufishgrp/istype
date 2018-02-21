@@ -1,6 +1,9 @@
 -module(istype_parser_test).
 
+-include("istype.hrl").
 -include_lib("eunit/include/eunit.hrl").
+
+-define(TYPEANDCALL(TypeAtom), ?TYPEANDCALL(#type{type = TypeAtom}, TypeAtom)).
 
 -define(TYPEANDCALL(Result, TypeAtom), fun() ->
                                            Type = istype_parser:parse_type({type, 1, TypeAtom, []}),
@@ -19,7 +22,7 @@ parse1_test() ->
     
     Forms1 = [{attribute, 1, module, ?MODULE},
               {attribute, 1, type, {typea, {type, 1, atom, []}, []}}],
-    Result1 = #{{?MODULE, typea, 0} => {type, atom, [], []}},
+    Result1 = #{{?MODULE, typea, 0} => #type{module = ?MODULE, type = atom}},
     ?assertEqual(Result1, istype_parser:parse_types(Forms1)).
 
 %%=============================================================================
@@ -28,377 +31,411 @@ parse1_test() ->
 parse2_test() ->
     Forms0 = [{attribute, 1, module, ?MODULE},
               {attribute, 1, type, {typea, {type, 1, atom, []}, []}}],
-    Result0 = #{{?MODULE, typea, 0} => {type, atom, [], []}},
+    Result0 = #{{?MODULE, typea, 0} => #type{module = ?MODULE, type = atom}},
     ?assertEqual(Result0, istype_parser:parse_types(Forms0, #{})),
 
     Forms1 = [{attribute, 1, module, ?MODULE},
               {attribute, 1, type, {typeb, {type, 1, binary, []}, []}}],
-    Result1 = Result0#{{?MODULE, typeb, 0} => {type, binary, [], []}},
+    Result1 = Result0#{{?MODULE, typeb, 0} => #type{module = ?MODULE, type = binary}},
     ?assertEqual(Result1, istype_parser:parse_types(Forms1, Result0)).
 
 %%=============================================================================
 %% parse_type/1 Tests
 %%=============================================================================
 any_test() ->
-    Result = {type, any, [], []},
-    ?TYPEANDCALL(Result, any).
+    ?TYPEANDCALL(any).
 
 none_test() ->
-    Result = {type, none, [], []},
-    ?TYPEANDCALL(Result, none).
+    ?TYPEANDCALL(none).
 
 pid_test() ->
-    Result = {type, pid, [], []},
-    ?TYPEANDCALL(Result, pid).
+    ?TYPEANDCALL(pid).
 
 port_test() ->
-    Result = {type, port, [], []},
-    ?TYPEANDCALL(Result, port).
+    ?TYPEANDCALL(port).
 
 reference_test() ->
-    Result = {type, reference, [], []},
-    ?TYPEANDCALL(Result, reference).
+    ?TYPEANDCALL(reference).
 
 nil_test() ->
-    Result = {literal, {nil, 1}},
+    Result = #literal{value = {nil, 1}},
     Result = istype_parser:parse_type({nil, 1}),
     ?TYPEANDCALL(Result, nil).
 
 atom_test() ->
-    Result = {type, atom, [], []},
-    ?TYPEANDCALL(Result, atom).
+    ?TYPEANDCALL(atom).
 
 'ErlangAtom_test'() ->
-    ?assertEqual({literal, {atom, 1, 'ErlangAtom'}},
+    ?assertEqual(#literal{value = {atom, 1, 'ErlangAtom'}},
                  istype_parser:parse_type({atom, 1, 'ErlangAtom'})).
 
 'Bitstring_test'() ->
-    ?assertEqual({type, bitstring, {1, 2}, []},
+    ?assertEqual(#type{type = bitstring,
+                       spec = {1, 2}},
                  istype_parser:parse_type({type, 1, binary, [{integer, 1, 1},
                                                              {integer, 1, 2}]})).
 
 'Fun_test'() ->
-    Result1 = {type, 'fun', any, []},
-    ?TYPEANDCALL(Result1, 'fun'),
+    Result0 = #type{type = 'fun',
+                    spec = any},
+    ?TYPEANDCALL(Result0, 'fun'),
 
-    Result2 = {type, 'fun', {any,
-                             {type, atom, [], []}},
-                            []},
-    ?assertEqual(Result2, istype_parser:parse_type({type, 1, 'fun', [{type, 1, any}, {type, 1, atom, []}]})),
+    Result1 = #type{type = 'fun',
+                    spec = {any, #type{type = atom}}},
+    ?assertEqual(Result1, istype_parser:parse_type({type, 1, 'fun', [{type, 1, any}, {type, 1, atom, []}]})),
 
-    Result3 = {type, 'fun', {[],
-                             {type, atom, [], []}},
-                            []},
-    ?assertEqual(Result3, istype_parser:parse_type({type, 1, 'fun', [{type, 1, product, []}, {type, 1, atom, []}]})),
+    Result2 = #type{type = 'fun',
+                    spec = {[], #type{type = atom}}},
+    ?assertEqual(Result2, istype_parser:parse_type({type, 1, 'fun', [{type, 1, product, []}, {type, 1, atom, []}]})),
 
-    Result4 = {type, 'fun', {[{type, atom, [], []}],
-                             {type, atom, [], []}},
-                            []},
-    ?assertEqual(Result4, istype_parser:parse_type({type, 1, 'fun', [{type, 1, product, [{type, 1, atom, []}]}, {type, 1, atom, []}]})).
+    Result3 = #type{type = 'fun',
+                    spec = {[#type{type = atom}],
+                             #type{type = atom}}},
+    ?assertEqual(Result3, istype_parser:parse_type({type, 1, 'fun', [{type, 1, product, [{type, 1, atom, []}]}, {type, 1, atom, []}]})).
 
 float_test() ->
-    Result = {type, float, [], []},
-    ?TYPEANDCALL(Result, float).
+    ?TYPEANDCALL(float).
 
 integer_test() ->
-    Result = {type, integer, [], []},
-    ?TYPEANDCALL(Result, integer).
+    ?TYPEANDCALL(integer).
 
 'Integer_test'() ->
-    ?assertEqual({literal, {integer, 1, 1}},  istype_parser:parse_type({integer, 1, 1})),
-    ?assertEqual({literal, {op, 1, '-', {integer, 1, 1}}}, istype_parser:parse_type({op, 1, '-', {integer, 1, 1}})).
+    ?assertEqual(#literal{value = {integer, 1, 1}},  istype_parser:parse_type({integer, 1, 1})),
+    ?assertEqual(#literal{value = {op, 1, '-', {integer, 1, 1}}}, istype_parser:parse_type({op, 1, '-', {integer, 1, 1}})).
 
 'Integer..Integer_test'() ->
-    Result = {type, range, {{literal, {integer, 1, 1}},
-                            {literal, {integer, 1, 2}}},
-                           []},
+    Result = #type{type = range,
+                   spec = {#literal{value = {integer, 1, 1}},
+                                #literal{value = {integer, 1, 2}}}},
     ?assertEqual(Result, istype_parser:parse_type({type, 1, range, [{integer, 1, 1},
                                                                     {integer, 1, 2}]})).
 
 'List_test'() ->
-    ?assertEqual({type, list, any, []}, istype_parser:parse_type({type, 1, list, [{type, 1, any, []}]})),
-    ?assertEqual({type, list, any, []}, istype_parser:parse_type({call, 1, {atom, 1, list}, [{type, 1, any, []}]})),
+    ?assertEqual(#type{type = list, spec = any}, istype_parser:parse_type({type, 1, list, [{type, 1, any, []}]})),
+    ?assertEqual(#type{type = list, spec = any}, istype_parser:parse_type({call, 1, {atom, 1, list}, [{type, 1, any, []}]})),
 
-    ?assertEqual({type, list, {maybe_empty,
-                               {type, integer, [], []},
-                               {literal, {nil, 1}}},
-                              []},
+    ?assertEqual(#type{type = list,
+                       spec = {maybe_empty,
+                                    #type{type = integer},
+                                    #literal{value = {nil, 1}}}},
                  istype_parser:parse_type({type, 1, list, [{type, 1, integer, []}]})),
-    ?assertEqual({type, list, {maybe_empty,
-                               {type, integer, [], []},
-                               {literal, {nil, 1}}},
-                              []},
+    ?assertEqual(#type{type = list,
+                       spec = {maybe_empty,
+                                    #type{type = integer},
+                                    #literal{value = {nil, 1}}}},
                  istype_parser:parse_type({call, 1, {atom, 1, list}, [{call, 1, {atom, 1, integer}, []}]})),
 
-    ?assertEqual({type, list, {maybe_empty,
-                               {type, integer, [], []},
-                               {type, any, [], []}},
-                              []},
+    ?assertEqual(#type{type = list,
+                       spec = {maybe_empty,
+                                    #type{type = integer},
+                                    #type{type = any}}},
                  istype_parser:parse_type({type, 1, maybe_improper_list, [{type, 1, integer, []}, {type, 1, any, []}]})),
-    ?assertEqual({type, list, {maybe_empty,
-                               {type, integer, [], []},
-                               {type, any, [], []}},
-                              []},
+    ?assertEqual(#type{type = list,
+                       spec = {maybe_empty,
+                                    #type{type = integer},
+                                    #type{type = any}}},
                  istype_parser:parse_type({call, 1, {atom, 1, maybe_improper_list}, [{call, 1, {atom, 1, integer}, []},
                                           {call, 1, {atom, 1, any}, []}]})),
 
-    ?assertEqual({type, list, {nonempty,
-                               {type, integer, [], []},
-                               {type, any, [], []}},
-                              []},
+    ?assertEqual(#type{type = list,
+                       spec = {nonempty,
+                                    #type{type = integer},
+                                    #type{type = any}}},
                  istype_parser:parse_type({type, 1, nonempty_improper_list, [{type, 1, integer, []}, {type, 1, any, []}]})),
-    ?assertEqual({type, list, {nonempty,
-                               {type, integer, [], []},
-                               {type, any, [], []}},
-                              []},
+    ?assertEqual(#type{type = list,
+                       spec = {nonempty,
+                                    #type{type = integer},
+                                    #type{type = any}}},
                  istype_parser:parse_type({call, 1, {atom, 1, nonempty_improper_list}, [{call, 1, {atom, 1, integer}, []},
                                           {call, 1, {atom, 1, any}, []}]})),
 
-    ?assertEqual({type, list, {nonempty,
-                               {type, any, [], []},
-                               {literal, {nil, 1}}},
-                              []},
+    ?assertEqual(#type{type = list,
+                       spec = {nonempty,
+                                    #type{type = any},
+                                    #literal{value = {nil, 1}}}},
                  istype_parser:parse_type({type, 1, nonempty_list, [{type, 1, any, []}]})),
-    ?assertEqual({type, list, {nonempty,
-                               {type, any, [], []},
-                               {literal, {nil, 1}}},
-                              []},
+    ?assertEqual(#type{type = list,
+                       spec = {nonempty,
+                                    #type{type = any},
+                                    #literal{value = {nil, 1}}}},
                  istype_parser:parse_type({call, 1, {atom, 1, nonempty_list}, [{type, 1, any, []}]})).
 
 'Map_test'() ->
-    ?assertEqual({type, map, any, []}, istype_parser:parse_type({type, 1, map, any})),
-    ?assertEqual({type, map, any, []}, istype_parser:parse_type({call, 1, {atom, 1, map}, []})),
+    ?assertEqual(#type{type = map, spec = any}, istype_parser:parse_type({type, 1, map, any})),
+    ?assertEqual(#type{type = map, spec = any}, istype_parser:parse_type({call, 1, {atom, 1, map}, []})),
 
-    ?assertEqual({type, map, empty, []}, istype_parser:parse_type({type, 1, map, []})),
+    ?assertEqual(#type{type = map, spec = empty}, istype_parser:parse_type({type, 1, map, []})),
 
-    ?assertEqual({type, map, {[{{type, atom, [], []},{type, atom, [], []}}],
-                              []},
-                             []},
+    ?assertEqual(#type{type = map,
+                       spec = {[{#type{type = atom}, #type{type = atom}}],
+                               []}},
                  istype_parser:parse_type({type, 1, map, [{type, 1, map_field_exact, [{type, 1, atom, []}, {type, 1, atom, []}]}]})),
 
-    ?assertEqual({type, map, {[],
-                              [{{type, binary, [], []}, {type, binary, [], []}}]},
-                             []},
+    ?assertEqual(#type{type = map,
+                       spec = {[],
+                               [{#type{type = binary}, #type{type = binary}}]}},
                  istype_parser:parse_type({type, 1, map, [{type, 1, map_field_assoc, [{type, 1, binary, []}, {type, 1, binary, []}]}]})),
 
-    ?assertEqual({type, map, {[{{type, atom, [], []}, {type, atom, [], []}}],
-                              [{{type, binary, [], []}, {type, binary, [], []}}]},
-                             []},
+    ?assertEqual(#type{type = map,
+                       spec = {[{#type{type = atom}, #type{type = atom}}],
+                               [{#type{type = binary}, #type{type = binary}}]}},
                  istype_parser:parse_type({type, 1, map, [{type, 1, map_field_exact, [{type, 1, atom, []}, {type, 1, atom, []}]},
                                                           {type, 1, map_field_assoc, [{type, 1, binary, []}, {type, 1, binary, []}]}]})).
 
 'Tuple_test'() ->
-    ?assertEqual({type, tuple, any, []}, istype_parser:parse_type({type, 1, tuple, any})),
-    ?assertEqual({type, tuple, any, []}, istype_parser:parse_type({call, 1, {atom, 1, tuple}, []})),
+    ?assertEqual(#type{type = tuple, spec = any}, istype_parser:parse_type({type, 1, tuple, any})),
+    ?assertEqual(#type{type = tuple, spec = any}, istype_parser:parse_type({call, 1, {atom, 1, tuple}, []})),
 
-    ?assertEqual({type, tuple, empty, []}, istype_parser:parse_type({type, 1, tuple, []})),
+    ?assertEqual(#type{type = tuple, spec = empty}, istype_parser:parse_type({type, 1, tuple, []})),
 
-    ?assertEqual({type, tuple, {1, [{1, {type, integer, [], []}}]},
-                               []},
+    ?assertEqual(#type{type = tuple,
+                       spec = {1, [{1, #type{type = integer}}]}},
                  istype_parser:parse_type({type, 1, tuple, [{type, 1, integer, []}]})),
-    ?assertEqual({type, tuple, {2, [{1, {type, integer, [], []}},
-                                    {2, {type, atom, [], []}}]},
-                               []},
+    ?assertEqual(#type{type = tuple,
+                       spec = {2, [{1, #type{type = integer}},
+                                   {2, #type{type = atom}}]}},
                  istype_parser:parse_type({type, 1, tuple, [{type, 1, integer, []}, {type, 1, atom, []}]})),
-    ?assertEqual({type, tuple, {2, [{1, {type, integer, [], []}},
-                                    {2, {type, any, [], []}}]},
-                               []},
+    ?assertEqual(#type{type = tuple,
+                       spec = {2, [{1, #type{type = integer}},
+                                   {2, #type{type = any}}]}},
                  istype_parser:parse_type({type, 1, tuple, [{type, 1, integer, []}, {var, 1, '_'}]})).
 
 'Union_test'() ->
-    ?assertEqual({type, union, [{type, integer, [], []}],
-                               []},
+    ?assertEqual(#type{type = union,
+                       spec = [#type{type = integer}]},
                  istype_parser:parse_type({type, 1, union, [{type, 1, integer, []}]})),
-    ?assertEqual({type, union, [{type, integer, [], []},
-                                {type, atom, [], []}],
-                               []},
+    ?assertEqual(#type{type = union,
+                       spec = [#type{type = integer},
+                               #type{type = atom}]},
                  istype_parser:parse_type({type, 1, union, [{type, 1, integer, []}, {type, 1, atom, []}]})).
 
 term_test() ->
-    Result = {type, any, [], []},
+    Result = #type{type = any},
     ?TYPEANDCALL(Result, term).
 
 binary_test() ->
-    Result = {type, binary, [], []},
-    ?TYPEANDCALL(Result, binary).
+    ?TYPEANDCALL(binary).
 
 bitstring_test() ->
-    Result = {type, bitstring, [], []},
-    ?TYPEANDCALL(Result, bitstring).
+    ?TYPEANDCALL(bitstring).
 
 boolean_test() ->
-    Result = {type, boolean, [], []},
-    ?TYPEANDCALL(Result, boolean).
+    ?TYPEANDCALL(boolean).
 
 byte_test() ->
-    Result = {type, range, {{literal, {integer, 1, 0}},
-                            {literal, {integer, 1, 255}}},
-                           []},
+    Result = #type{type = range,
+                   spec = {#literal{value = {integer, 1, 0}},
+                           #literal{value = {integer, 1, 255}}}},
     ?TYPEANDCALL(Result, byte).
 
 char_test() ->
-    Result = {type, range, {{literal, {integer, 1, 0}},
-                            {literal, {integer, 1, 16#10ffff}}},
-                           []},
+    Result = #type{type = range,
+                   spec = {#literal{value = {integer, 1, 0}},
+                           #literal{value = {integer, 1, 16#10ffff}}}},
     ?TYPEANDCALL(Result, char).
 
 number_test() ->
-    Result = {type, number, [], []},
-    ?TYPEANDCALL(Result, number).
+    ?TYPEANDCALL(number).
 
 list_test() ->
-    Result = {type, list, any, []},
+    Result = #type{type = list, spec = any},
     ?TYPEANDCALL(Result, list).
 
 maybe_improper_list_test() ->
-    Result = {type, list, {maybe_empty,
-                           {type, any, [], []},
-                           {type, any, [], []}},
-                          []},
+    Result = #type{type = list,
+                   spec = {maybe_empty,
+                                #type{type = any},
+                                #type{type = any}}},
     ?TYPEANDCALL(Result, maybe_improper_list).
 
 nonempty_list_test() ->
-    Result = {type, list, {nonempty,
-                           {type, any, [], []},
-                           {literal, {nil, 1}}},
-                          []},
+    Result = #type{type = list,
+                   spec = {nonempty,
+                                #type{type = any},
+                                #literal{value = {nil, 1}}}},
     ?TYPEANDCALL(Result, nonempty_list).
 
 string_test() ->
-    Result = {type, list, {maybe_empty,
-                           {type, range, {{literal, {integer, 1, 0}},
-                                          {literal, {integer, 1, 16#10ffff}}},
-                                         []},
-                           {literal, {nil, 1}}},
-                          []},
+    Result = #type{type = list,
+                   spec = {maybe_empty,
+                           #type{type = range,
+                                 spec = {#literal{value = {integer, 1, 0}},
+                                         #literal{value = {integer, 1, 16#10ffff}}}},
+                           #literal{value = {nil, 1}}}},
     ?TYPEANDCALL(Result, string).
 
 nonempty_string_test() ->
-    Result = {type, list, {nonempty,
-                           {type, range, {{literal, {integer, 1, 0}},
-                                          {literal, {integer, 1, 16#10ffff}}},
-                                         []},
-                           {literal, {nil, 1}}},
-                          []},
+    Result = #type{type = list,
+                   spec = {nonempty,
+                           #type{type = range,
+                                 spec = {#literal{value = {integer, 1, 0}},
+                                         #literal{value = {integer, 1, 16#10ffff}}}},
+                           #literal{value = {nil, 1}}}},
     ?TYPEANDCALL(Result, nonempty_string).
 
 iodata_test() ->
-    Result = {type, union, [{type, list, {maybe_empty,
-                                          {type, union, [{type, range, {{literal, {integer, 1, 0}},
-                                                                        {literal, {integer, 1, 255}}},
-                                                                       []},
-                                                         {type, binary, [], []},
-                                                         {type, iolist, [], []}],
-                                                        []},
-                                          {type, union, [{type, binary, [], []},
-                                                         {literal, {nil, 1}}],
-                                                        []}},
-                                         []},
-                            {type, binary, [], []}],
-                           []},
+    Result = #type{type = union,
+                   spec = [#type{type = list,
+                                 spec = {maybe_empty,
+                                         #type{type = union,
+                                                spec = [#type{type = range,
+                                                              spec = {#literal{value = {integer, 1, 0}},
+                                                                      #literal{value = {integer, 1, 255}}}},
+                                                        #type{type = binary},
+                                                        #type{type = iolist}]},
+                                          #type{type = union,
+                                                spec = [#type{type = binary},
+                                                        #literal{value = {nil, 1}}]}}},
+                           #type{type = binary}]},
     ?TYPEANDCALL(Result, iodata).
 
 iolist_test() ->
-    Result = {type, list, {maybe_empty,
-                           {type, union, [{type, range, {{literal, {integer, 1, 0}},
-                                                         {literal, {integer, 1, 255}}},
-                                                        []},
-                                          {type, binary, [], []},
-                                          {type, iolist, [], []}],
-                                         []},
-                           {type, union, [{type, binary, [], []},
-                                          {literal, {nil, 1}}],
-                                         []}},
-                          []},
+    Result = #type{type = list,
+                   spec = {maybe_empty,
+                           #type{type = union,
+                                  spec = [#type{type = range,
+                                                spec = {#literal{value = {integer, 1, 0}},
+                                                        #literal{value = {integer, 1, 255}}}},
+                                          #type{type = binary},
+                                          #type{type = iolist}]},
+                            #type{type = union,
+                                  spec = [#type{type = binary},
+                                          #literal{value = {nil, 1}}]}}},
     ?TYPEANDCALL(Result, iolist).
 
 function_test() ->
-    Result = {type, 'fun', any, []},
+    Result = #type{type = 'fun', spec = any},
     ?TYPEANDCALL(Result, function).
 
 module_test() ->
-    Result = {type, atom, [], []},
+    Result = #type{type = atom},
     ?TYPEANDCALL(Result, module).
 
 mfa_test() ->
-    Result = {type, tuple, {3, [{1, {type, atom, [], []}},
-                                {2, {type, atom, [], []}},
-                                {3, {type, range, {{literal, {integer, 1, 0}},
-                                                   {literal, {integer, 1, 255}}},
-                                                  []}}]},
-                               []},
+    Result = #type{type = tuple,
+                   spec = {3, [{1, #type{type = atom}},
+                               {2, #type{type = atom}},
+                               {3, #type{type = range,
+                                         spec = {#literal{value = {integer, 1, 0}},
+                                                 #literal{value = {integer, 1, 255}}}}}]}},
     ?TYPEANDCALL(Result, mfa).
 
 arity_test() ->
-    Result = {type, range, {{literal, {integer, 1, 0}},
-                            {literal, {integer, 1, 255}}},
-                           []},
+    Result = #type{type = range,
+                   spec = {#literal{value = {integer, 1, 0}},
+                           #literal{value = {integer, 1, 255}}}},
     ?TYPEANDCALL(Result, arity).
 
 identifier_test() ->
-    Result = {type, union, [{type, pid, [], []},
-                            {type, port, [], []},
-                            {type, reference, [], []}],
-                           []},
+    Result = #type{type = union,
+                   spec = [#type{type = pid},
+                           #type{type = port},
+                           #type{type = reference}]},
     ?TYPEANDCALL(Result, identifier).
 
 node_test() ->
-    Result = {type, atom, [], []},
+    Result = #type{type = atom},
     ?TYPEANDCALL(Result, node).
 
 timeout_test() ->
-    Result = {type, union, [{literal, {atom, 1, infinity}},
-                            {type, range, {{literal, {integer, 1, 0}},
-                                           {literal, {atom, 1, undefined}}},
-                                          []}],
-                           []},
+    Result = #type{type = union,
+                   spec = [#literal{value = {atom, 1, infinity}},
+                           #type{type = range,
+                                 spec = {#literal{value = {integer, 1, 0}},
+                                         #literal{value = {atom, 1, undefined}}}}]},
     ?TYPEANDCALL(Result, timeout).
 
 no_return_test() ->
-    Result = {type, none, [], []},
+    Result = #type{type = none},
     ?TYPEANDCALL(Result, no_return).
 
 non_neg_integer_test() ->
-    Result = {type, range, {{literal, {integer, 1, 0}},
-                            {literal, {atom, 1, undefined}}},
-                           []},
+    Result = #type{type = range,
+                   spec = {#literal{value = {integer, 1, 0}},
+                           #literal{value = {atom, 1, undefined}}}},
     ?TYPEANDCALL(Result, non_neg_integer).
 
 pos_integer_test() ->
-    Result = {type, range, {{literal, {integer, 1, 1}},
-                            {literal, {atom, 1, undefined}}},
-                           []},
+    Result = #type{type = range,
+                   spec = {#literal{value = {integer, 1, 1}},
+                           #literal{value = {atom, 1, undefined}}}},
     ?TYPEANDCALL(Result, pos_integer).
 
 neg_integer_test() ->
-    Result = {type, range, {{literal, {atom, 1, undefined}},
-                            {literal, {op, 1, '-', {integer, 1, 1}}}},
-                           []},
+    Result = #type{type = range,
+                   spec = {#literal{value = {atom, 1, undefined}},
+                           #literal{value = {op, 1, '-', {integer, 1, 1}}}}},
     ?TYPEANDCALL(Result, neg_integer).
 
 type_record_test() ->
-    Result1 = {type, record, {record_a, []}, []},
-    ?assertEqual(Result1, istype_parser:parse_type({type, 1, record, [{atom, 1, record_a}]})),
+    Result0 = #type{type = record,
+                    spec = {record_a, []}},
+    ?assertEqual(Result0, istype_parser:parse_type({type, 1, record, [{atom, 1, record_a}]})),
 
-    Result2 = {type, record, {record_a, [{a, {type, float, [], []}}]},
-                             []},
-    ?assertEqual(Result2, istype_parser:parse_type({type, 1, record, [{atom, 1, record_a},
+    Result1 = #type{type = record,
+                    spec = {record_a, [{a, #type{type = float}}]}},
+    ?assertEqual(Result1, istype_parser:parse_type({type, 1, record, [{atom, 1, record_a},
                                                                       {type, 7, field_type, [{atom, 1, a}, {type, 1, float, []}]}]})).
 remote_test() ->
-    %%Result = {type, atom, [], []},
-    %%?assertEqual(Result, istype_parser:parse_type({remote_type, 1, [{atom, 1, istype_types_test}, {atom, 1, typea}, []]})),
-    %%?assertEqual(Result, istype_parser:parse_type({call, 1, {remote, 1, {atom, 1, istype_types_test}, {atom, 1, typea}}, []})),
-    ok.
+    Result = #type{module = istype_remote, type = atom},
+    ?assertEqual(Result, istype_parser:parse_type({remote_type, 1, [{atom, 1, istype_remote}, {atom, 1, type_a}, []]})),
+    ?assertEqual(Result, istype_parser:parse_type({call, 1, {remote, 1, {atom, 1, istype_remote}, {atom, 1, type_a}}, []})).
+
+paramaterized_test() ->
+    Result = #type{type   = tuple,
+                   spec   = {1, [{1, {var, 1, 'A'}}]},
+                   params = [{var, 1, 'A'}]},
+    ?assertEqual(Result, istype_parser:parse_type({attribute, 1, type, {type_a, {type, 1, tuple, [{var, 1, 'A'}]}, [{var, 1, 'A'}]}})).
+
+resolve_type_test() ->
+    %% type_0(A, B) :: {A, B}.
+    %% type_1(A)    :: type_0(A, binary()).
+    %% type_2()     :: type_1(atom()).
+    Type0 = #type{type   = tuple,
+                  spec   = {2, [{1, {var, 1, 'A'}},
+                                {2, {var, 1, 'B'}}]},
+                  params = [{var, 1, 'A'},
+                            {var, 1, 'B'}]},
+    Type1 = #type{type   = type_0,
+                  spec   = [{var, 1, 'A'},
+                            #type{type = binary}],
+                  params = [{var, 1, 'A'}]},
+    Type2 = #type{type   = type_1,
+                  spec   = [#type{type = atom}]},
+    Types = #{{undefined, type_0, 2} => Type0,
+              {undefined, type_1, 1} => Type1,
+              {undefined, type_2, 0} => Type2},
+
+    Result0 = #type{type = tuple,
+                    spec = {2, [{1, #type{type = atom}},
+                                {2, #type{type = binary}}]}},
+    ?assertEqual(Result0, istype_parser:resolve_type(#type{type = type_2},
+                                                     Types)),
+
+    Result1 = #type{type = tuple,
+                    spec = {2, [{1, #type{type = binary}},
+                                {2, #type{type = binary}}]}},
+    ?assertEqual(Result1, istype_parser:resolve_type(#type{type = type_1,
+                                                           spec = [#type{type = binary}]},
+                                                     Types)),
+
+    Result2 = #type{type = tuple,
+                    spec = {2, [{1, #type{type = atom}},
+                                {2, #type{type = atom}}]}},
+    ?assertEqual(Result2, istype_parser:resolve_type(#type{type = type_0,
+                                                           spec = [#type{type = atom},
+                                                                   #type{type = atom}]},
+                                                     Types)).
 
 %%=============================================================================
 %% parse_record/1 Tests
 %%=============================================================================
 record_test() ->
-    Result1 = {record, record_a, 2, [a], #{a => {type, any, [], []}}, #{a => {literal, {atom, 1, undefined}}}},
+    Result1 = {record, record_a, 2, [a], #{a => #type{type = any}}, #{a => #literal{value = {atom, 1, undefined}}}},
     Result1 = istype_parser:parse_record({attribute, 1, record, {record_a, [{record_field, 1, {atom, 1, a}}]}}),
 
-    Result2 = {record, record_a, 2, [a], #{a => {type, atom, [], []}}, #{a => {literal, {atom, 1, undefined}}}},
+    Result2 = {record, record_a, 2, [a], #{a => #type{type = atom}}, #{a => #literal{value = {atom, 1, undefined}}}},
     Result2 = istype_parser:parse_record({attribute, 1, record, {record_a, [{typed_record_field, {record_field, 1, {atom, 1, a}}, {type, 1, atom, []}}]}}),
 
-    Result3 = {record, record_a, 2, [a], #{a => {type, atom, [], []}}, #{a => {literal, {atom, 1, atom}}}},
+    Result3 = {record, record_a, 2, [a], #{a => #type{type = atom}}, #{a => #literal{value = {atom, 1, atom}}}},
     Result3 = istype_parser:parse_record({attribute, 1, record, {record_a, [{typed_record_field, {record_field, 1, {atom, 1, a}, {atom, 1, atom}}, {type, 1, atom, []}}]}}).

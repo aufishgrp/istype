@@ -298,14 +298,14 @@ do_transform(Module, Line, Value, {type, tuple, TupleSpec, []}, Types, Records, 
             {op, Line, 'andalso',
                 {call, Line, {atom, Line, is_tuple}, [Value]},
                 {op, Line, '=:=',
-                    {integer, Line, length(TupleFieldSpec)},
+                    {integer, Line, Arity},
                     {call, Line, {atom, Line, size}, [Value]}}};
         _ ->
             {op, Line, 'andalso',
                 {call, Line, {atom, Line, is_tuple}, [Value]},
                 {op, Line, 'andalso',
                     {op, Line, '=:=',
-                        {integer, Line, length(TupleFieldSpec)},
+                        {integer, Line, Arity},
                         {call, Line, {atom, Line, size}, [Value]}},
                     transform_tuple(Module, Line, Value, ValidatedFields, Types, Records, Options)}}
     end;
@@ -507,15 +507,15 @@ do_transform(Module, Line, Value, {type, record, {Record, Overrides}, []}, Types
 %% @doc Custom types need the definition looked up from the parsed types.
 %% @end
 do_transform(Module, Line, Value, {Class, Type, TypeArgs, TypeParams}, Types, Records, Options) when Class =:= type orelse
-                                                                                                  Class =:= user_type ->
+                                                                                                     Class =:= user_type ->
+    Key = {Module, Type, length(TypeParams)},
     TypeSpec = try
-                   Key = {Module, Type, length(TypeParams)},
                    #{Key := X} = Types,
                    io:format("Fetched ~p ~p\n", [Key, X]),
                    X
                catch
                    _:_ ->
-                       error({unknown_type, Type})
+                       error({unknown_type, Key})
                end,
     transform(Module, Line, Value, TypeSpec, Types, Records, Options).
 
