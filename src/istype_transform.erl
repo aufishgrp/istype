@@ -8,7 +8,6 @@ parse_transform(Forms, Options) ->
     Types0 = istype_parser:parse_types(Forms),
     {Types1, Records} = istype_parser:parse_records(Forms, Types0),
     io:format("Forms\n~p\n", [Forms]),
-
     forms:map(fun(Form) ->
                   do_transform(Form, Types1, Records, Options)
               end,
