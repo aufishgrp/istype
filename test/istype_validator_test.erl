@@ -1,5 +1,6 @@
 -module(istype_validator_test).
 
+-include_lib("istype.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 -define(BIF(Type, Bif), fun() ->
@@ -23,7 +24,7 @@
 literal_test() ->
     Value = {atom, 1, atom},
     Literal = {atom, 1, also},
-    Type = istype_parser:literal(Literal),
+    Type = #literal{value = Literal},
     Expected = {op, 1, '=:=', Value, Literal},
 
     istype_test_util:match(istype_validator, Value, Expected, Type, []).
@@ -98,8 +99,9 @@ integer_test() ->
 'Integer..Integer_test'() ->
     Value = {atom, 1, atom},
 
-    Type0 = istype_parser:type(range, {istype_parser:literal({integer, 1, 1}),
-                                       istype_parser:literal({integer, 1, 2})}),
+    Type0 = #type{type = range,
+                  spec = {#literal{value = {integer, 1, 1}},
+                          #literal{value = {integer, 1, 2}}}},
     Expected0 = {op, 1, 'andalso',
                     {call, 1, {atom, 1, is_integer}, [Value]},
                     {op, 1, 'andalso',
@@ -107,15 +109,17 @@ integer_test() ->
                         {op, 1, '=<', Value, {integer, 1, 2}}}},
     istype_test_util:match(istype_validator, Value, Expected0, Type0, []),
 
-    Type1 = istype_parser:type(range, {istype_parser:literal({integer, 1, 1}),
-                                       istype_parser:literal({atom, 1, undefined})}),
+    Type1 = #type{type = range,
+                  spec = {#literal{value = {integer, 1, 1}},
+                          #literal{value = {atom, 1, undefined}}}},
     Expected1 = {op, 1, 'andalso',
                     {call, 1, {atom, 1, is_integer}, [Value]},
                     {op, 1, '>=', Value, {integer, 1, 1}}},
     istype_test_util:match(istype_validator, Value, Expected1, Type1, []),
 
-    Type2 = istype_parser:type(range, {istype_parser:literal({atom, 1, undefined}),
-                                       istype_parser:literal({integer, 1, 2})}),
+    Type2 = #type{type = range,
+                  spec = {#literal{value = {atom, 1, undefined}},
+                          #literal{value = {integer, 1, 2}}}},
     Expected2 = {op, 1, 'andalso',
                     {call, 1, {atom, 1, is_integer}, [Value]},
                     {op, 1, '=<', Value, {integer, 1, 2}}},
@@ -124,21 +128,24 @@ integer_test() ->
 'List_test'() ->
     Value = {atom, 1, atom},
 
-    Type0 = istype_parser:type(list, {maybe_empty,
-                                      istype_parser:type(any),
-                                      istype_parser:type(any)}),
+    Type0 = #type{type = list,
+                  spec = {maybe_empty,
+                          #type{type = any},
+                          #type{type = any}}},
     Expected0 = {call, 1, {atom, 1, is_list}, [Value]},
     istype_test_util:match(istype_validator, Value, Expected0, Type0, []),
 
-    Type1 = istype_parser:type(list, {maybe_empty,
-                                      istype_parser:type(any),
-                                      istype_parser:literal({nil, 1})}),
+    Type1 = #type{type = list,
+                  spec = {maybe_empty,
+                          #type{type = any},
+                          #literal{value = {nil, 1}}}},
     Expected1 = {call, 1, {atom, 1, is_list}, [Value]},
     istype_test_util:match(istype_validator, Value, Expected1, Type1, []),
 
-    Type2 = istype_parser:type(list, {nonempty,
-                                      istype_parser:type(any),
-                                      istype_parser:type(any)}),
+    Type2 = #type{type = list,
+                  spec = {nonempty,
+                          #type{type = any},
+                          #type{type = any}}},
     Expected2 = {op, 1, 'andalso',
                     {call, 1, {atom, 1, is_list}, [Value]},
                     {op, 1, '<',
@@ -146,9 +153,10 @@ integer_test() ->
                         {call, 1, {atom, 1, length}, [Value]}}},
     istype_test_util:match(istype_validator, Value, Expected2, Type2, []),
 
-    Type3 = istype_parser:type(list, {nonempty,
-                                      istype_parser:type(any),
-                                      istype_parser:literal({nil, 1})}),
+    Type3 = #type{type = list,
+                  spec = {nonempty,
+                          #type{type = any},
+                          #literal{value = {nil, 1}}}},
     Expected3 = {op, 1, 'andalso',
         {call, 1, {atom, 1, is_list}, [Value]},
         {op, 1, '<',
@@ -156,43 +164,50 @@ integer_test() ->
             {call, 1, {atom, 1, length}, [Value]}}},
     istype_test_util:match(istype_validator, Value, Expected3, Type3, []),
 
-    Type4 = istype_parser:type(list, {maybe_empty,
-                                      istype_parser:type(atom),
-                                      istype_parser:type(any)}),
+    Type4 = #type{type = list,
+                  spec = {maybe_empty,
+                          #type{type = atom},
+                          #type{type = any}}},
     ?REMOTE(Value, Type4).
 
 'Map_test'() ->
     Value = {atom, 1, atom},
 
-    Type0 = istype_parser:type(map, any),
+    Type0 = #type{type = map,
+                  spec = any},
     Expected0 = {call, 1, {atom, 1, is_map}, [Value]},
     istype_test_util:match(istype_validator, Value, Expected0, Type0, []),
 
-    Type1 = istype_parser:type(map, empty),
+    Type1 = #type{type = map,
+                  spec = empty},
     Expected1 = {op, 1, '=:=',
                     Value,
                     {map, 1, []}},
     istype_test_util:match(istype_validator, Value, Expected1, Type1, []),
 
-    Type2 = istype_parser:type(map, {[{istype_parser:literal({atom, 1, key}),
-                                       istype_parser:type(atom)}],
-                                     []}),
+    Type2 = #type{type = map,
+                  spec = {[{#literal{value = {atom, 1, key}},
+                            #type{type = atom}}],
+                           []}},
     ?REMOTE(Value, Type2).
 
 'Tuple_test'() ->
     Value = {atom, 1, atom},
 
-    Type0 = istype_parser:type(tuple, any),
+    Type0 = #type{type = tuple,
+                  spec = any},
     Expected0 = {call, 1, {atom, 1, is_tuple}, [Value]},
     istype_test_util:match(istype_validator, Value, Expected0, Type0, []),
 
-    Type1 = istype_parser:type(tuple, empty),
+    Type1 = #type{type = tuple,
+                  spec = empty},
     Expected1 = {op, 1, '=:=',
                     Value,
                     {tuple, 1, []}},
     istype_test_util:match(istype_validator, Value, Expected1, Type1, []),
 
-    Type2 = istype_parser:type(tuple, {1, [{1, istype_parser:type(atom)}]}),
+    Type2 = #type{type = tuple,
+                  spec = {1, [{1, #type{type = atom}}]}},
     Expected2 = {op, 1, 'andalso',
                     {call, 1, {atom, 1, is_tuple}, [Value]},
                     {op, 1, 'andalso',
@@ -205,8 +220,9 @@ integer_test() ->
 'Union_test'() ->
     Value = {atom, 1, atom},
 
-    Type = istype_parser:type(union, [istype_parser:type(atom),
-                                      istype_parser:literal({nil, 1})]),
+    Type = #type{type = union,
+                 spec = [#type{type = atom},
+                         #literal{value = {nil, 1}}]},
     Expected = {op, 1, 'orelse',
                    {call, 1, {atom, 1, is_atom}, [Value]},
                    {op, 1, '=:=', Value, {nil, 1}}},
@@ -214,18 +230,20 @@ integer_test() ->
 
 record_test() ->
     Value = {atom, 1, atom},
-    RecordTypes = #{a => istype_parser:type(atom),
-                    b => istype_parser:type(atom),
-                    c => istype_parser:type(range, {istype_parser:literal({integer, 1, 0}),
-                                                    istype_parser:literal({integer, 1, 99})})},
-    RecordDefaults = #{a => istype_parser:literal({nil, 1}),
-                       b => istype_parser:literal({nil, 1}),
-                       c => istype_parser:literal({nil, 1})},
+    RecordTypes = #{a => #type{type = atom},
+                    b => #type{type = atom},
+                    c => #type{type = range,
+                               spec = {#literal{value = {integer, 1, 0}},
+                                       #literal{value = {integer, 1, 99}}}}},
+    RecordDefaults = #{a => #literal{value = {nil, 1}},
+                       b => #literal{value = {nil, 1}},
+                       c => #literal{value = {nil, 1}}},
 
     RecordInfo = {3, [a, b, c], RecordTypes, RecordDefaults},
     Records = #{record_a => RecordInfo},
 
-    Type0 = istype_parser:type(record, {record_a, []}),
+    Type0 = #type{type = record,
+                  spec = {record_a, []}},
     Expected0 = {op, 1, 'andalso',
                     {call, 1, {atom, 1, is_record}, [{atom, 1, atom},
                                                      {atom, 1, record_a},
@@ -248,8 +266,9 @@ record_test() ->
 custom_test() ->
     Value = {atom, 1, atom},
 
-    Type = istype_parser:type(custom),
-    Types = #{{istype_validator, custom, 0} => istype_parser:type(atom)},
+    Type = #type{module = ?MODULE,
+                 type   = custom},
+    Types = #{{?MODULE, custom, 0} => #type{type = atom}},
 
     Expected = {call, 1, {atom, 1, is_atom}, [Value]},
     istype_test_util:match(istype_validator, Value, Expected, Type, Types, #{}, []).
@@ -257,15 +276,31 @@ custom_test() ->
 parameterized_test() ->
     Value = {atom, 1, atom},
 
-    TypeA = istype_parser:type(tuple, {1, [{1, {var, 1, 'A'}}]}, [{var, 1, 'A'}]),
-    TypeB = istype_parser:type(type_a, [{var, 1, 'B'}], [{var, 1, 'B'}]),
-    TypeC = istype_parser:type(type_b, [istype_parser:type(atom)], []),
-    Types = #{{istype_validator, type_a, 1} => TypeA,
-              {istype_validator, type_b, 1} => TypeB,
-              {istype_validator, type_c, 0} => TypeC},
+    TypeA = #type{type   = tuple,
+                  spec   = {1, [{1, {var, 1, 'A'}}]},
+                  params = [{var, 1, 'A'}]},
+    TypeB = #type{module = ?MODULE,
+                  type   = type_a,
+                  spec   = [{var, 1, 'B'}],
+                  params = [{var, 1, 'B'}]},
+    TypeC = #type{module = ?MODULE,
+                  type   = type_b,
+                  spec   = [#type{type = atom}]},
+    Types = #{{?MODULE, type_a, 1} => TypeA,
+              {?MODULE, type_b, 1} => TypeB,
+              {?MODULE, type_c, 0} => TypeC},
 
-    Type0 = istype_parser:type(type_c),
-    Expected0 = {call, 1, {atom, 1, is_atom}, [Value]},
+    Type0 = #type{module = ?MODULE,
+                  type   = type_c},
+    %%is_tuple(atom) andalso
+    %%    1 =:= size(atom) andalso is_atom(element(1, atom))
+    Expected0 = {op, 1, 'andalso',
+                    {call, 1, {atom, 1, is_tuple}, [Value]},
+                    {op, 1, 'andalso',
+                        {op, 1, '=:=',
+                            {integer, 1, 1},
+                            {call, 1, {atom, 1, size}, [Value]}},
+                        {call, 1, {atom, 1, is_atom}, [{call, 1, {atom, 1, element}, [{integer, 1, 1}, Value]}]}}},
 
     istype_test_util:match(istype_validator, Value, Expected0, Type0, Types, #{}, []).
 

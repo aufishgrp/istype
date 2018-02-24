@@ -393,65 +393,100 @@ paramaterized_test() ->
                     params = [{var, 1, 'A'}]},
     ?assertEqual(Result1, istype_parser:parse_type(?MODULE, {attribute, 1, type, {type_a, {user_type, 1, type_a, [{var, 1, 'A'}]}, [{var, 1, 'A'}]}})).
 
+call_test() ->
+    Result0 = #type{module = ?MODULE,
+                    type   = type_a},
+    ?assertEqual(Result0, istype_parser:parse_type(?MODULE, {call, 1, {atom, 1, type_a}, []})),
+
+    Result1 = #type{module = ?MODULE,
+                    type   = type_b,
+                    spec   = [{literal, {atom, 1, atom}}]},
+    ?assertEqual(Result1, istype_parser:parse_type(?MODULE, {call, 1, {atom, 1, type_b}, [{atom, 1, atom}]})).
+
 resolve_type_test() ->
     %% type_a(A, B) :: {A, B}.
     %% type_b(A)    :: type_a(A, binary()).
     %% type_c()     :: type_b(atom()).
+    %% type_d()     :: type_c().
     TypeA = #type{type   = tuple,
                   spec   = {2, [{1, {var, 1, 'A'}},
                                 {2, {var, 1, 'B'}}]},
                   params = [{var, 1, 'A'},
                             {var, 1, 'B'}]},
-    TypeB = #type{type   = type_a,
+    TypeACall = istype_parser:parse_type(?MODULE, {call, 1, {atom, 1, type_a}, [{call, 1, {atom, 1, atom}, []},
+                                                                                {call, 1, {atom, 1, binary}, []}]}),
+    TypeB = #type{module = ?MODULE,
+                  type   = type_a,
                   spec   = [{var, 1, 'A'},
                             #type{type = binary}],
                   params = [{var, 1, 'A'}]},
-    TypeC = #type{type   = type_b,
+    TypeBCall = istype_parser:parse_type(?MODULE, {call, 1, {atom, 1, type_b}, [{call, 1, {atom, 1, binary}, []}]}),
+    TypeC = #type{module = ?MODULE,
+                  type   = type_b,
                   spec   = [#type{type = atom}]},
-    Types0 = #{{undefined, type_a, 2} => TypeA,
-               {undefined, type_b, 1} => TypeB,
-               {undefined, type_c, 0} => TypeC},
+    TypeCCall = istype_parser:parse_type(?MODULE, {call, 1, {atom, 1, type_c}, []}),
+    TypeD = #type{module = ?MODULE,
+                  type   = type_c,
+                  spec   = []},
+    TypeDCall = istype_parser:parse_type(?MODULE, {call, 1, {atom, 1, type_d}, []}),
+    Types = #{{?MODULE, type_a, 2} => TypeA,
+              {?MODULE, type_b, 1} => TypeB,
+              {?MODULE, type_c, 0} => TypeC,
+              {?MODULE, type_d, 0} => TypeD},
 
-    Result0 = #type{type = tuple,
-                    spec = {2, [{1, #type{type = atom}},
-                                {2, #type{type = binary}}]}},
-    %?assertEqual(Result0, istype_parser:resolve_type(#type{type = type_c},
-    %                                                 Types0)),
+    ResultCD = #type{type   = tuple,
+                    spec   = {2, [{1, #type{type = atom}},
+                                  {2, #type{type = binary}}]},
+                    params = []},
+    ?assertEqual(ResultCD, istype_parser:resolve_type(TypeD, Types)),
+    ?assertEqual(ResultCD, istype_parser:resolve_type(TypeDCall, Types)),
+    ?assertEqual(ResultCD, istype_parser:resolve_type(TypeC, Types)),
+    ?assertEqual(ResultCD, istype_parser:resolve_type(TypeCCall, Types)),
 
-    Result1 = #type{type = tuple,
-                    spec = {2, [{1, #type{type = binary}},
-                                {2, #type{type = binary}}]}},
-    %?assertEqual(Result1, istype_parser:resolve_type(#type{type = type_b,
-    %                                                       spec = [#type{type = binary}]},
-    %                                                 Types0)),
+    ResultB = #type{type   = tuple,
+                    spec   = {2, [{1, {var, 1, 'A'}},
+                                  {2, #type{type = binary}}]},
+                    params = [{var, 1, 'A'}]},
+    ?assertEqual(ResultB, istype_parser:resolve_type(TypeB, Types)),
 
-    Result2 = #type{type = tuple,
-                    spec = {2, [{1, #type{type = atom}},
-                                {2, #type{type = atom}}]}},
-    %?assertEqual(Result2, istype_parser:resolve_type(#type{type = type_a,
-    %                                                       spec = [#type{type = atom},
-    %                                                               #type{type = atom}]},
-    %                                                 Types0)),
+    ResultBCall = #type{type = tuple,
+                        spec = {2, [{1, #type{type = binary}},
+                                    {2, #type{type = binary}}]}},
+    ?assertEqual(ResultBCall, istype_parser:resolve_type(TypeBCall, Types)),
 
+    ResultA = #type{type   = tuple,
+                    spec   = {2, [{1, {var, 1, 'A'}},
+                                  {2, {var, 1, 'B'}}]},
+                    params = [{var, 1, 'A'},
+                              {var, 1, 'B'}]},
+    ?assertEqual(ResultA, istype_parser:resolve_type(TypeA, Types)),
+
+    ResultACall = #type{type = tuple,
+                        spec = {2, [{1, #type{type = atom}},
+                                    {2, #type{type = binary}}]}},
+    ?assertEqual(ResultACall, istype_parser:resolve_type(TypeACall, Types)).
+    
+resolve_types_test() ->
+    %% -type type_a(A, B) :: {A, B}.
+    %% -type type_b(A)    :: type_a(A, binary()).
+    %% -type type_c()     :: type_c(atom()).
     Forms = [{attribute, 1, module, ?MODULE},
              {attribute, 1, type, {type_a, {type, 1, tuple, [{var, 1, 'A'}, {var, 1, 'B'}]}, [{var, 1, 'A'}, {var, 1, 'B'}]}},
-             {attribute, 1, type, {type_b, {type, 1, type_a, [{var, 1, 'A'}]}, [{var, 1, 'A'}]}},
-             {attribute, 1, type, {type_c, {type, 1, type_b, []}, []}}],
-    Types1 = #{{?MODULE, type_a, 2} => #type{type = tuple,
-                                             spec = {2, [{1, {var, 1, 'A'}},
-                                                         {2, {var, 1, 'B'}}]},
-                                             params = [{var, 1, 'A'},
-                                                       {var, 1, 'B'}]},
-               {?MODULE, type_b, 1} => #type{module = ?MODULE,
-                                             type = tuple,
-                                             spec = {2, [{1, {var, 1, 'A'}},
-                                                         {2, #type{type = binary}}]},
-                                             params = [{var, 1, 'A'}]},
-               {?MODULE, type_c, 0} => #type{module = ?MODULE,
-                                             type = tuple,
-                                             spec = {2, [{1, #type{type = atom}},
-                                                         {2, #type{type = binary}}]}}},
-    ?assertEqual(Types1, istype_parser:parse_types(Forms, #{})).
+             {attribute, 1, type, {type_b, {type, 1, type_a, [{var, 1, 'A'}, {type, 1, binary, []}]}, [{var, 1, 'A'}]}},
+             {attribute, 1, type, {type_c, {type, 1, type_b, [{type, 1, atom, []}]}, []}}],
+    Types = #{{?MODULE, type_a, 2} => #type{type   = tuple,
+                                            spec   = {2, [{1, {var, 1, 'A'}},
+                                                          {2, {var, 1, 'B'}}]},
+                                            params = [{var, 1, 'A'},
+                                                      {var, 1, 'B'}]},
+              {?MODULE, type_b, 1} => #type{type   = tuple,
+                                            spec   = {2, [{1, {var, 1, 'A'}},
+                                                          {2, #type{type = binary}}]},
+                                            params = [{var, 1, 'A'}]},
+              {?MODULE, type_c, 0} => #type{type   = tuple,
+                                            spec   = {2, [{1, #type{type = atom}},
+                                                          {2, #type{type = binary}}]}}},
+    ?assertEqual(Types, istype_parser:resolve_types(istype_parser:parse_types(Forms, #{}))).
 
 %%=============================================================================
 %% parse_record/1 Tests

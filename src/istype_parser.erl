@@ -1,7 +1,8 @@
 -module(istype_parser).
 
 -export([parse_types/1, parse_types/2,
-         parse_records/1, parse_records/2, parse_records/3]).
+         parse_records/1, parse_records/2, parse_records/3,
+         resolve_types/1, resolve_type/2]).
 
 -ifdef(EUNIT).
 -export([parse_type/2,
@@ -21,7 +22,7 @@
 %%==========================================================
 %% parse_types
 %%==========================================================
--spec parse_types(istype:forms()) -> istype:types().
+-spec parse_types(istype:forms() | module()) -> istype:types().
 %% @doc Converts a types, calls representing types, and literals
 %%      into the internal type format.
 %% @end
@@ -43,8 +44,7 @@ parse_types(Forms, Types) ->
                               end,
                               Types,
                               Forms),
-    io:format("ParsedTypes\n~p\n", [ParsedTypes]),
-    resolve_types(ParsedTypes).
+    ParsedTypes.
 
 %%=========================================================
 %% parse_type_list
@@ -91,12 +91,23 @@ parse_type(Module, Form, Types) ->
 %%      Form that wraps the type spec.
 %% @end
 %%======================================
-do_parse_type(Module, {attribute, _, type, {_, TypeSpec, TypeParams}}, Types0) ->
+do_parse_type(Module,
+              {attribute, _, Class0, {_, {remote_type, _, _} = TypeSpec, TypeParams}},
+              Types0) when Class0 =:= type orelse
+                           Class0 =:= opaque ->
     {Type, Types1} = parse_type(Module, TypeSpec, Types0),
     {Type#type{params = TypeParams}, Types1};
-do_parse_type(Module, {attribute, _, opaque, {_, TypeSpec, TypeParams}}, Types0) ->
-    {Type, Types1} = parse_type(Module, TypeSpec, Types0),
+do_parse_type(Module, {attribute, _, Class0, {_, TypeSpec, TypeParams}}, Types0) when Class0 =:= type orelse
+                                                                                      Class0 =:= opaque ->
+    Class1 = case is_bif(element(3, TypeSpec)) of
+                 true ->
+                     type;
+                 false ->
+                     user_type
+             end,
+    {Type, Types1} = parse_type(Module, setelement(1, TypeSpec, Class1), Types0),
     {Type#type{params = TypeParams}, Types1};
+
 %%======================================
 %% Variables
 %%======================================
@@ -813,23 +824,27 @@ do_parse_type(_, {remote_type, _, RemoteTypeSpec} = TypeSpec, Types0) ->
         #{TypeKey := RemoteType} ->
             {RemoteType, Types0};
         #{ParsedKey := true} ->
-            io:format("This shouldn't happen\n", []),
-            {parse_type(Module, {type, 1, any, []}), Types0};
+            parse_error({type_not_found, TypeKey});
         _ ->
             Types1 = parse_types(Module),
             Types2 = maps:merge(Types0#{ParsedKey => true}, Types1),
             parse_type(Module, TypeSpec, Types2)
     end;
 %%======================================
-%% Default handler
+%% Default handlers
 %%======================================
-do_parse_type(Module0, {Class, _, Type, TypeArgs}, Types0) when Class =:= type orelse
-                                                                Class =:= user_type ->
+do_parse_type(Module, {user_type, _, Type, TypeArgs}, Types0) ->
+    {TList, Types1} = parse_type_list(Module, TypeArgs, Types0),
+    {#type{module = Module,
+           type   = Type,
+           spec   = TList},
+     Types1};
+do_parse_type(Module0, {type, _, Type, TypeArgs}, Types0) ->
     {TList, Types1} = parse_type_list(Module0, TypeArgs, Types0),
-    Module1 = case Class of
-                  type ->
-                      #type{}#type.module;
-                  user_type ->
+    Module1 = case is_bif(Type) of
+                  true ->
+                      erlang;
+                  false ->
                       Module0
               end,
     {#type{module = Module1,
@@ -837,7 +852,7 @@ do_parse_type(Module0, {Class, _, Type, TypeArgs}, Types0) when Class =:= type o
            spec   = TList},
      Types1};
 do_parse_type(_, Type, _) ->
-    parse_error(Type).
+    parse_error({unparsed, Type}).
 
 %%=========================================================
 %% parse_error
@@ -958,6 +973,51 @@ parse_record_field_type(Module, _, Types) ->
     parse_type(Module, {type, 1, any, []}, Types).
 
 %%=========================================================
+%% determine_module
+%%=========================================================
+is_bif(any) -> true;
+is_bif(none) -> true;
+is_bif(pid) -> true;
+is_bif(port) -> true;
+is_bif(reference) -> true;
+is_bif(atom) -> true;
+is_bif('fun') -> true;
+is_bif(float) -> true;
+is_bif(integer) -> true;
+is_bif(range) -> true;
+is_bif(list) -> true;
+is_bif(maybe_improper_list) -> true;
+is_bif(nonempty_improper_list) -> true;
+is_bif(nonempty_list) -> true;
+is_bif(map) -> true;
+is_bif(tuple) -> true;
+is_bif(union) -> true;
+is_bif(term) -> true;
+is_bif(binary) -> true;
+is_bif(bitstring) -> true;
+is_bif(boolean) -> true;
+is_bif(byte) -> true;
+is_bif(char) -> true;
+is_bif(number) -> true;
+is_bif(string) -> true;
+is_bif(nonempty_string) -> true;
+is_bif(iodata) -> true;
+is_bif(iolist) -> true;
+is_bif(function) -> true;
+is_bif(module) -> true;
+is_bif(mfa) -> true;
+is_bif(arity) -> true;
+is_bif(identifier) -> true;
+is_bif(node) -> true;
+is_bif(timeout) -> true;
+is_bif(no_return) -> true;
+is_bif(non_neg_integer) -> true;
+is_bif(pos_integer) -> true;
+is_bif(neg_integer) -> true;
+is_bif(record) -> true;
+is_bif(_) -> false.
+
+%%=========================================================
 %% type
 %%=========================================================
 -spec type(atom()) -> istype:type().
@@ -973,18 +1033,10 @@ type(Module, Type, TypeSpec) ->
     type(Module, Type, TypeSpec, []).
 
 -spec type(module(), atom(), istype:type_spec(), list()) -> istype:type().
-type(Module, Type, TypeSpec, TypeParams) ->
+type(_, Type, TypeSpec, TypeParams) ->
     #type{type = Type,
           spec = TypeSpec,
           params = TypeParams}.
-
--spec set_type_params(istype:forms(), istype:type()) -> istype:type().
-set_type_params(TypeParams, Type) ->
-    Type#type{params = TypeParams}.
-
--spec set_type_module(module(), istype:type()) -> istype:type().
-set_type_module(Module, Type) ->
-    Type#type{module = Module}.
 
 %%=========================================================
 %% literal
@@ -1000,20 +1052,9 @@ literal(Form) ->
 %% @doc Resolves the parameterized types into thier primitives.
 %% @end
 resolve_types(Types0) ->
-    io:format("Resolve Types\n~p\n", [Types0]),
     Types1 = maps:fold(fun(K, #type{} = V0, Acc) ->
-                              Key = {V0#type.module,
-                                     V0#type.type,
-                                     length(V0#type.params)},
-
-                              V1 = case Types0 of
-                                       #{Key := ResolvedType} ->
-                                           resolve_type(ResolvedType#type.params, ResolvedType, Types0);
-                                       _ ->
-                                           V0
-                                   end,
-
-                              Acc#{K => V1};
+                              V1 = resolve_type(V0, Types0),
+                              Acc#{K => V1#type{params = V0#type.params}};
                           (_, _, Acc) ->
                               Acc
                        end,
@@ -1021,22 +1062,49 @@ resolve_types(Types0) ->
                        Types0),
     maps:merge(Types0, Types1).
 
-resolve_type(Params, Type, Types) ->
+resolve_type(#type{spec = Spec} = Base, Types) when is_list(Spec) ->
+    MFA = {Base#type.module,
+           Base#type.type,
+           length(Spec)},
+    io:format("Key - ~p\n", [MFA]),
+    case Types of
+        #{MFA := Type0} ->
+            io:format("~p\n", [Type0]),
+            Type1 = do_resolve_type(Base, Type0, Types),
+            Type1#type{params = Base#type.params};
+        _ -> 
+            io:format("None\n", []),
+            Base
+    end;
+resolve_type(Base, _) ->
+  Base.
+
+do_resolve_type(Base, Type, Types) ->
     ParamKeys = lists:map(fun({var, _, V}) ->
                                  {var, V};
                              (V) ->
                                  V
                           end,
                           Type#type.params),
-    ParamMap = maps:from_list(lists:zip(ParamKeys, Params)),
-    update_term(fun Fun({var, _, Var}) ->
-                        maps:get({var, Var}, ParamMap);
-                    Fun(#type{} = T) ->
-                        T;%resolve_type(T#type{params = update_term(Fun, T#type.params)});
-                    Fun(X) ->
-                        X
-                end,
-                Type).
+    
+    ParamMap = maps:from_list(lists:zip(ParamKeys, Base#type.spec)),
+    
+    io:format("Param Map ~p\n", [ParamMap]),
+    Spec0 = update_term(fun Fun({var, _, Var}) ->
+                                   maps:get({var, Var}, ParamMap);
+                            Fun(#type{} = T) ->
+                                   T#type{spec = update_term(Fun, T#type.spec)};
+                            Fun(X) -> 
+                                   X
+                        end,
+                        Type#type.spec),
+    Spec1 = update_term(fun(#type{} = TypeX) ->
+                               resolve_type(TypeX, Types);
+                           (X) ->
+                               X
+                         end,
+                        Spec0),
+    resolve_type(Type#type{spec = Spec1}, Types).
 
 %%=========================================================
 %% update_term
@@ -1049,8 +1117,8 @@ update_term(Fun, Term0) ->
             list_to_tuple([update_term(Fun, X) || X <- tuple_to_list(Term0)]);
         Term0 when is_map(Term0) ->
             {K, V} = lists:unzip(maps:to_list(Term0)),
-            maps:from_list(lists:zip([update_term(Fun, X) || X <- Term0],
-                                     [update_term(Fun, X) || X <- Term0]));
+            maps:from_list(lists:zip([update_term(Fun, X) || X <- K],
+                                     [update_term(Fun, X) || X <- V]));
         Term1 ->
             Term1
     end.

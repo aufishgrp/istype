@@ -9,7 +9,7 @@ match(Module, Value, Expected, Type, Options) ->
 
 match(Module, Value, Expected, Type, Types, Records, Options) ->
     Line = element(2, Value),
-    Result = Module:transform(Module, Line, Value, Type, Types, Records, Options),
+    Result = Module:transform(Line, Value, Type, Types, Records, Options),
     try
         ?assertEqual(Expected, Result)
     catch
