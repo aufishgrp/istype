@@ -4,25 +4,70 @@
 %%====================================================================
 %% parse_transform api
 %%====================================================================
-parse_transform(Forms, Options) ->
-    Types0 = istype_parser:parse_types(Forms),
-    {Types1, Records} = istype_parser:parse_records(Forms, Types0),
-    io:format("Forms\n~p\n", [Forms]),
-    forms:map(fun(Form) ->
-                  do_transform(Form, Types1, Records, Options)
-              end,
-              Forms).
+parse_transform(Forms0, Options) ->
+    {attribute, _, module, Module} = lists:keyfind(module, 3, Forms0),
+    {attribute, Export, export, _} = lists:keyfind(export, 3, Forms0),
 
-do_transform({call, _, {atom, _, istype}, [Value, Type]}, Types, Records, Options) ->
-    istype_validator:transform(Value, istype_parser:parse_type(Type), Types, Records, Options);
+    Types0 = istype_parser:parse_types(Forms0),
+    {Types1, Records} = istype_parser:parse_records(Forms0, Types0),
+    
+    Forms1 = forms:map(fun(Form) ->
+                           do_transform(Module, Form, Types1, Records, Options)
+                       end,
+                       Forms0),
 
-do_transform({call, _, {atom, _, totype}, [Value, Type]}, Types, Records, Options) ->
-    istype_converter:transform(Value, istype_parser:parse_type(Type), Types, Records, Options);    
+    [{eof, EOFLine} | Forms2] = lists:reverse(Forms1),
+    Forms3 = lists:reverse([{eof, EOFLine + 3},
+                            src_fun(EOFLine + 2, Module),
+                            records_fun(EOFLine + 1, Records),
+                            types_fun(EOFLine, Types1) | 
+                            Forms2]),
 
-do_transform({call, Line, {atom, _, asserttype}, Args}, Types, Records, Options) ->
+    insert_at_line(Export, 
+                   {attribute, Export, export, [{istype_to_src, 0},
+                                                {istype_types, 0},
+                                                {istype_records, 0}]},
+                   Forms3).
+    
+
+do_transform(Module, {call, Line, {atom, _, istype}, [Value, Type0]}, Types, Records, Options) ->
+    Type1 = istype_parser:resolve_type(istype_parser:parse_type(Module, Type0), Types),
+    io:format("Validate\n~p\n~p\n~p\n", [Value, Type0, Type1]),
+    istype_validator:transform(Line, Value, Type1, Types, Records, Options);
+
+do_transform(Module, {call, Line, {atom, _, totype}, [Value, Type0]}, Types, Records, Options) ->
+    Type1 = istype_parser:resolve_type(istype_parser:parse_type(Module, Type0), Types),
+    istype_converter:transform(Line, Value, Type1, Types, Records, Options);    
+
+do_transform(Module, {call, Line, {atom, _, asserttype}, Args}, Types, Records, Options) ->
     {match, Line,
         {atom, Line, true},
-        do_transform({call, Line, {atom, Line, istype}, Args}, Types, Records, Options)};
+        do_transform(Module, {call, Line, {atom, Line, istype}, Args}, Types, Records, Options)};
 
-do_transform(Form, _, _, _) ->
+do_transform(_, Form, _, _, _) ->
     Form.
+
+insert_at_line(Line, Form, Forms) ->
+    Head = lists:takewhile(fun(X) -> element(2, X) =< Line end, Forms),
+    Tail = lists:dropwhile(fun(X) -> element(2, X) < Line + 1 end, Forms),
+    Head ++ [Form] ++ Tail.
+
+types_fun(Line, Types) ->
+    istype_fun(istype_types, Line, Types).
+
+records_fun(Line, Records) -> 
+    istype_fun(istype_records, Line, Records).
+
+istype_fun(Function, Line, Value) ->
+    {function, Line, Function, 0,
+        [{clause, Line, [], [],
+              [erl_parse:abstract(Value)]}]}.
+
+src_fun(Line, Module) ->
+    {function, Line, istype_to_src, 0,
+        [{clause, Line, [], [],
+              [{call, Line, {remote, Line, {atom, Line, io_lib}, {atom, Line, format}},
+                    [erl_parse:abstract("~s\n", [{line, Line}]),
+                     {cons, Line, {call, Line, {remote, Line, {atom, Line, forms}, {atom, Line, read}},
+                                       [erl_parse:abstract(Module, [{line, Line}])]},
+                                  {nil, Line}}]}]}]}.

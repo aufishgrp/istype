@@ -28,7 +28,7 @@ transform(Line, Value, Type, Options) ->
 transform(Line, {call, _, {atom, _, BIF}, []} = Value, Type, Types, Records, Options) when BIF =:= node orelse
                                                                                                    BIF =:= self ->
     
-    do_transform(Line, Value, istype_parser:resolve_type(Type, Types), Types, Records, Options);
+    do_transform(Line, Value, Type, Types, Records, Options);
 transform(Line, {call, _, {atom, _, BIF}, Args} = Value, Type, Types, Records, Options) when length(Args) =:= 1 andalso
                                                                                              (BIF =:= abs orelse
                                                                                               BIF =:= bit_size orelse
@@ -59,7 +59,7 @@ transform(Line, {call, _, {atom, _, BIF}, Args} = Value, Type, Types, Records, O
                                                                                               BIF =:= tl orelse
                                                                                               BIF =:= trunc orelse
                                                                                               BIF =:= tuple_size) ->
-    do_transform(Line, Value, istype_parser:resolve_type(Type, Types), Types, Records, Options);
+    do_transform(Line, Value, Type, Types, Records, Options);
 
 transform(Line, {call, _, {atom, _, BIF}, Args} = Value, Type, Types, Records, Options) when length(Args) =:= 2 andalso
                                                                                              (BIF =:= binary_part orelse
@@ -70,18 +70,18 @@ transform(Line, {call, _, {atom, _, BIF}, Args} = Value, Type, Types, Records, O
 transform(Line, {call, _, {atom, _, BIF}, Args} = Value, Type, Types, Records, Options) when length(Args) =:= 3 andalso
                                                                                              (BIF =:= binary_part orelse
                                                                                               BIF =:= is_record) ->
-    do_transform(Line, Value, istype_parser:resolve_type(Type, Types), Types, Records, Options);
+    do_transform(Line, Value, Type, Types, Records, Options);
 transform(Line, Value, Type, Types, Records, Options) when element(1, Value) =:= 'block' orelse
                                                            element(1, Value) =:= call orelse
                                                            element(1, Value) =:= 'case' orelse
                                                            element(1, Value) =:= 'try' ->
-    Var = istype_transform:get_var(Line),
+    Var = get_var(Line),
     Steps = [{match, Line, Var, Value},
-             do_transform(Line, Var, istype_parser:resolve_type(Type, Types), Types, Records, Options)],
+             do_transform(Line, Var, Type, Types, Records, Options)],
     {block, Line, Steps};
 transform(Line, Value, Type, Types, Records, Options) ->
 
-    do_transform(Line, Value, istype_parser:resolve_type(Type, Types), Types, Records, Options).
+    do_transform(Line, Value, Type, Types, Records, Options).
 %%=====================================
 %% Literals
 %%=====================================
@@ -214,15 +214,15 @@ do_transform(Line, Value, #type{type = integer, spec = []}, _, _, _) ->
 %% @end
 do_transform(Line, Value, #type{type = range, spec = {#literal{value = {atom, _, undefined}}, #literal{value = UpperBound}}}, Types, Records, Options) ->
     {op, Line, 'andalso',
-        transform(Line, Value, istype_parser:type(integer), Types, Records, Options),
+        transform(Line, Value, #type{type = integer}, Types, Records, Options),
         {op, Line, '=<', Value, UpperBound}};
 do_transform(Line, Value, #type{type = range, spec = {#literal{value = LowerBound}, #literal{value = {atom, _, undefined}}}}, Types, Records, Options) ->
     {op, Line, 'andalso',
-        transform(Line, Value, istype_parser:type(integer), Types, Records, Options),
+        transform(Line, Value, #type{type = integer}, Types, Records, Options),
         {op, Line, '>=', Value, LowerBound}};
 do_transform(Line, Value, #type{type = range, spec = {#literal{value = LowerBound}, #literal{value = UpperBound}}}, Types, Records, Options) ->
    {op, Line, 'andalso',
-        transform(Line, Value, istype_parser:type(integer), Types, Records, Options),
+        transform(Line, Value, #type{type = integer}, Types, Records, Options),
         {op, Line, 'andalso',
             {op, Line, '>=', Value, LowerBound},
             {op, Line, '=<', Value, UpperBound}}};
@@ -478,15 +478,15 @@ do_transform(Line, Value, #type{type = number, spec = []}, _, _, _) ->
 %% @doc Expect :: {type, record, RecordInfo}
 %% @end
 do_transform(Line, Value, #type{type = record, spec = {Record, Overrides}}, Types, Records, Options) ->
-     RecordSpec = try
-                      #{Record := X} = Records,
-                      X
-                  catch
-                      _:_ ->
+     RecordSpec = case Records of
+                      #{Record := X} ->
+                          X;
+                      _ ->
                           error({unknown_record, Record})
                   end,
-    
-    {Arity, Fields, FieldTypes0, _} = RecordSpec,
+    #record{arity  = Arity,
+            fields = Fields,
+            types  = FieldTypes0} = RecordSpec,
     FieldTypes1 = lists:foldl(fun({Field, Type}, Acc) ->
                                   Acc#{Field => Type}
                               end,
@@ -529,7 +529,6 @@ do_transform(Line, Value, #type{type = record, spec = {Record, Overrides}}, Type
 %% @end
 transform_tuple(Line, Value0, [{Index, FieldType}], Types, Records, Options) ->
     Value1 = {call, Line, {atom, Line, element}, [{integer, Line, Index}, Value0]},
-    io:format("Tuple\n~p\n", [[Value1, FieldType]]),
     transform(Line, Value1, FieldType, Types, Records, Options);
 transform_tuple(Line, Value0, [{Index, FieldType} | FieldTypes], Types, Records, Options) ->
     Value1 = {call, Line, {atom, Line, element}, [{integer, Line, Index}, Value0]},
@@ -599,3 +598,16 @@ is_any([_ | UnionTypes], Types) ->
     is_any(UnionTypes, Types);
 is_any(_, _) ->
     false.
+
+%%==========================================================
+%% get_var
+%%==========================================================
+%% @doc generates a variable name that should be conflict free.
+%% @end
+get_var(Line) ->
+    Var = case get('__var_counter__') of
+              undefined -> 1;
+              Counter -> Counter + 1
+          end,
+    put('__var_counter__', Var),
+    {var, Line, list_to_atom("__IsType_" ++ integer_to_list(Var))}.

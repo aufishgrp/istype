@@ -66,6 +66,8 @@ atom_test() ->
     ?TYPEANDCALL(atom).
 
 'ErlangAtom_test'() ->
+    ?assertEqual(#literal{value = {atom, 1, 'ErlangAtom'}}, 
+                 istype_parser:parse_type(?MODULE, {attribute, 1, type, {erlang_atom_type, {atom, 1, 'ErlangAtom'}, []}})),
     ?assertEqual(#literal{value = {atom, 1, 'ErlangAtom'}},
                  istype_parser:parse_type(?MODULE, {atom, 1, 'ErlangAtom'})).
 
@@ -492,11 +494,23 @@ resolve_types_test() ->
 %% parse_record/1 Tests
 %%=============================================================================
 record_test() ->
-    Result1 = {record, record_a, 2, [a], #{a => #type{type = any}}, #{a => #literal{value = {atom, 1, undefined}}}},
-    Result1 = istype_parser:parse_record(?MODULE, {attribute, 1, record, {record_a, [{record_field, 1, {atom, 1, a}}]}}),
+    Result1 = #record{record   = record_a,
+                      arity    = 2,
+                      fields   = [a],
+                      types    = #{a => #type{type = any}},
+                      defaults = #{a => #literal{value = {atom, 1, undefined}}}},
+    ?assertEqual(Result1, istype_parser:parse_record(?MODULE, {attribute, 1, record, {record_a, [{record_field, 1, {atom, 1, a}}]}})),
 
-    Result2 = {record, record_a, 2, [a], #{a => #type{type = atom}}, #{a => #literal{value = {atom, 1, undefined}}}},
-    Result2 = istype_parser:parse_record(?MODULE, {attribute, 1, record, {record_a, [{typed_record_field, {record_field, 1, {atom, 1, a}}, {type, 1, atom, []}}]}}),
+    Result2 = #record{record   = record_a,
+                      arity    = 2,
+                      fields   = [a],
+                      types    = #{a => #type{type = atom}},
+                      defaults = #{a => #literal{value = {atom, 1, undefined}}}},
+    ?assertEqual(Result2, istype_parser:parse_record(?MODULE, {attribute, 1, record, {record_a, [{typed_record_field, {record_field, 1, {atom, 1, a}}, {type, 1, atom, []}}]}})),
 
-    Result3 = {record, record_a, 2, [a], #{a => #type{type = atom}}, #{a => #literal{value = {atom, 1, atom}}}},
-    Result3 = istype_parser:parse_record(?MODULE, {attribute, 1, record, {record_a, [{typed_record_field, {record_field, 1, {atom, 1, a}, {atom, 1, atom}}, {type, 1, atom, []}}]}}).
+    Result3 = #record{record   = record_a,
+                      arity    = 2,
+                      fields   = [a],
+                      types    = #{a => #type{type = atom}},
+                      defaults = #{a => #literal{value = {atom, 1, atom}}}},
+    ?assertEqual(Result3, istype_parser:parse_record(?MODULE, {attribute, 1, record, {record_a, [{typed_record_field, {record_field, 1, {atom, 1, a}, {atom, 1, atom}}, {type, 1, atom, []}}]}})).

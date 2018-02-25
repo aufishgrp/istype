@@ -6,7 +6,7 @@
 -define(BIF(Type, Bif), fun() ->
                             Value = {atom, 1, atom},
                             Expected = {call, 1, {atom, 1, Bif}, [Value]},
-                            istype_test_util:match(istype_validator, Value, Expected, istype_parser:type(Type), [])
+                            istype_test_util:match(istype_validator, Value, Expected, #type{type = Type}, [])
                         end()).
 
 -define(REMOTE(Value, Type), fun() ->
@@ -30,10 +30,10 @@ literal_test() ->
     istype_test_util:match(istype_validator, Value, Expected, Type, []).
 
 any_test() ->
-    istype_test_util:match(istype_validator, {atom, 1, atom}, {atom, 1, true}, istype_parser:type(any), []).
+    istype_test_util:match(istype_validator, {atom, 1, atom}, {atom, 1, true}, #type{type = any}, []).
 
 none_test() ->
-    istype_test_util:match(istype_validator, {atom, 1, atom}, {atom, 1, false}, istype_parser:type(none), []).
+    istype_test_util:match(istype_validator, {atom, 1, atom}, {atom, 1, false}, #type{type = none}, []).
 
 pid_test() ->
     ?BIF(pid, is_pid).
@@ -52,13 +52,15 @@ atom_test() ->
 
     M0 = 0,
     N0 = 0,
-    Type0 = istype_parser:type(bitstring, {M0, N0}),
+    Type0 = #type{type = bitstring,
+                  spec = {M0, N0}},
     Expected0 = {op, 1, '=:=', Value, {bin, 1, []}},
     istype_test_util:match(istype_validator, Value, Expected0, Type0, []),
 
     M1 = 7,
     N1 = 0,
-    Type1 = istype_parser:type(bitstring, {M1, N1}),
+    Type1 = #type{type = bitstring,
+                  spec = {M1, N1}},
     Expected1 = {op, 1, 'andalso',
                     {call, 1, {atom, 1, is_bitstring}, [Value]},
                     {op, 1, '=:=',
@@ -68,7 +70,8 @@ atom_test() ->
 
     M2 = 0,
     N2 = 7,
-    Type2 = istype_parser:type(bitstring, {M2, N2}),
+    Type2 = #type{type = bitstring,
+                  spec = {M2, N2}},
     Expected2 = {op, 1, 'andalso',
                     {call, 1, {atom, 1, is_bitstring}, [Value]},
                     {op, 1, '=:=',
@@ -80,7 +83,8 @@ atom_test() ->
 
     M3 = 7,
     N3 = 7,
-    Type3 = istype_parser:type(bitstring, {M3, N3}),
+    Type3 = #type{type = bitstring,
+                  spec = {M3, N3}},
     Expected3 = {op, 1, 'andalso',
                     {call, 1, {atom, 1, is_bitstring}, [Value]},
                     {op, 1, '=:=',
@@ -239,7 +243,11 @@ record_test() ->
                        b => #literal{value = {nil, 1}},
                        c => #literal{value = {nil, 1}}},
 
-    RecordInfo = {3, [a, b, c], RecordTypes, RecordDefaults},
+    RecordInfo = #record{record   = record_a,
+                         arity    = 3,
+                         fields   = [a, b, c],
+                         types    = RecordTypes,
+                         defaults = RecordDefaults},
     Records = #{record_a => RecordInfo},
 
     Type0 = #type{type = record,
@@ -266,12 +274,13 @@ record_test() ->
 custom_test() ->
     Value = {atom, 1, atom},
 
-    Type = #type{module = ?MODULE,
-                 type   = custom},
+    Type0 = #type{module = ?MODULE,
+                  type   = custom},
     Types = #{{?MODULE, custom, 0} => #type{type = atom}},
-
     Expected = {call, 1, {atom, 1, is_atom}, [Value]},
-    istype_test_util:match(istype_validator, Value, Expected, Type, Types, #{}, []).
+
+    Type1 = istype_parser:resolve_type(Type0, Types),
+    istype_test_util:match(istype_validator, Value, Expected, Type1, Types, #{}, []).
 
 parameterized_test() ->
     Value = {atom, 1, atom},
@@ -292,6 +301,7 @@ parameterized_test() ->
 
     Type0 = #type{module = ?MODULE,
                   type   = type_c},
+    Type1 = istype_parser:resolve_type(Type0, Types),
     %%is_tuple(atom) andalso
     %%    1 =:= size(atom) andalso is_atom(element(1, atom))
     Expected0 = {op, 1, 'andalso',
@@ -302,7 +312,7 @@ parameterized_test() ->
                             {call, 1, {atom, 1, size}, [Value]}},
                         {call, 1, {atom, 1, is_atom}, [{call, 1, {atom, 1, element}, [{integer, 1, 1}, Value]}]}}},
 
-    istype_test_util:match(istype_validator, Value, Expected0, Type0, Types, #{}, []).
+    istype_test_util:match(istype_validator, Value, Expected0, Type1, Types, #{}, []).
 
 
 
