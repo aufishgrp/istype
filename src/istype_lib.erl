@@ -106,11 +106,11 @@ do_istype(Value, #type{type = integer}, _, _, _) ->
 %%==================
 do_istype(Value, #type{type = range, spec = {LowerBound, UpperBound}}, _, _, _) when is_integer(Value) ->
     case Value of
-        _ when LowerBound =:= undefined andalso Value =< UpperBound ->
+        _ when LowerBound#literal.value =:= undefined andalso Value =< UpperBound#literal.value ->
             true;
-        _ when UpperBound =:= undefined andalso Value >= LowerBound ->
+        _ when UpperBound#literal.value =:= undefined andalso Value >= LowerBound#literal.value ->
             true;
-        _ when Value >= LowerBound andalso Value =< UpperBound ->
+        _ when Value >= LowerBound#literal.value andalso Value =< UpperBound#literal.value ->
             true;
         _ ->
             false
@@ -122,6 +122,9 @@ do_istype(Value, #type{type = list, spec = any}, _, _, _) ->
     is_list(Value);
 do_istype(Value, #type{type = list, spec = TypeSpec}, Types, Records, Options) when is_list(Value) ->
     {Empty, ValueType, TerminatorType} = TypeSpec,
+
+    io:format("Evaluating list ~p ~p\n", [TypeSpec, Value]),
+
     do_istype_list(Value, Empty, ValueType, TerminatorType, Types, Records, Options);
 %%======================================
 %% Map
@@ -605,6 +608,8 @@ do_totype(Value, #type{type = list, spec = any}, _, _, _) when is_map(Value) ->
     maps:to_list(Value);
 do_totype(Value, #type{type = list, spec = any}, _, _, _) when is_function(Value) ->
     erlang:fun_to_list(Value);
+do_totype(Value, #type{type = list, spec = any}, _, _, _) when is_tuple(Value) andalso 0 =:= size(Value) ->
+    [];
 do_totype(Value, #type{type = list, spec = {Empty, _, _}} = Type, _, _, _) when is_tuple(Value) andalso 0 =:= size(Value) ->
     case Empty of
         maybe_empty ->

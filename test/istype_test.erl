@@ -40,8 +40,6 @@
               reference_type/0,
               nil_a_type/0,
               nil_b_type/0,
-              atom_type/0,
-              erlang_atom_type/0,
               empty_bitstring_type/0,
               m_bitstring_type/0,
               n_bitstring_type/0,
@@ -75,7 +73,6 @@
               byte_type/0,
               char_type/0,
               number_type/0,
-              alias_list_type/0,
               string_type/0,
               nonempty_string_type/0,
               module_type/0,
@@ -279,38 +276,6 @@ nil_conversion_test() ->
     ?CONVERT_ERROR(atom, []),
     ?CONVERT_ERROR(atom, nil()),
     ?CONVERT_ERROR(atom, nil_a_type()).
-
-%%=====================================
-%% Atom
-%%=====================================
-%% @doc Atom :: atom()
-%%            | Erlang_Atom
-%%
-%%      Erlang_Atom :: 'foo', 'bar', ...
-%% @end
--type atom_type() :: atom().
-atom_validation_test() ->
-    ?assertEqual(true, istype(return_value(atom), atom())),
-    ?assertEqual(false, istype(return_value(<<"binary">>), atom())).
-
-atom_conversion_test() ->
-    ?assertEqual(atom, totype(atom, atom())),
-    ?assertEqual(atom, totype(<<"atom">>, atom())),
-    ?assertEqual(atom, totype("atom", atom())),
-    ?CONVERT_ERROR(1, atom()).
-
--type erlang_atom_type() :: atom.
-erlang_atom_validation_test() ->
-    ?assertEqual(true, istype(return_value(atom), atom)),
-    ?assertEqual(false, istype(return_value(undefined), atom)),
-    ?assertEqual(false, istype(return_value(<<"atom">>), atom)).
-
-erlang_atom_conversion_test() ->
-    ?assertEqual(atom, totype(return_value(<<"atom">>), atom)),
-    ?assertEqual(atom, totype(return_value("atom"), atom)),
-
-    ?CONVERT_ERROR(<<"undefined">>, atom),
-    ?CONVERT_ERROR("undefined", atom).
 
 %%=====================================
 %% Bitstring
@@ -921,30 +886,6 @@ number_conversion_test() ->
     ?CONVERT_ERROR(atom, number()).
 
 %%=====================================
-%% list()
-%%=====================================
-%% @doc list() :: [any()]
-%% @end
--type alias_list_type() :: list().
-list_any_validation_test() ->
-    ?assertEqual(true, istype(return_value([]), list())),
-    ?assertEqual(true, istype(return_value([]), alias_list_type())),
-    ?assertEqual(true, istype(return_value([atom]), list())),
-    ?assertEqual(true, istype(return_value([<<"binary">>]), list())),
-    ?assertEqual(false, istype(return_value({}), list())).
-
-list_any_conversion_test() ->
-    "atom" = totype(return_value(atom), list()),
-    "binary" = totype(return_value(<<"binary">>), list()),
-    "1" = totype(return_value(1), list()),
-    [] = totype(return_value([]), list()),
-    [] = totype(return_value({}), list()),
-    [] = totype(return_value(#{}), list()),
-    [1] = totype(return_value([1]), list()),
-    [1] = totype(return_value({1}), list()),
-    [] = totype(return_value({}), list()).
-
-%%=====================================
 %% maybe_improper_list()
 %%=====================================
 %% @doc maybe_improper_list() :: maybe_improper_list(any(), any())
@@ -960,21 +901,6 @@ maybe_improper_list_validation_test() ->
 maybe_improper_list_conversion_test() ->
     [] = totype(return_value({}), maybe_improper_list()),
     [atom] = totype(return_value({atom}), maybe_improper_list()).
-
-%%=====================================
-%% nonempty_list()
-%%=====================================
-%% @doc nonempty_list() :: nonempty_list(any())
-%% @end
-nonempty_list_validation_test() ->
-    ?assertEqual(false, istype(return_value([]), nonempty_list())),
-    ?assertEqual(false, istype(return_value([atom | atom]), nonempty_list())),
-    ?assertEqual(true, istype(return_value([atom, atom]), nonempty_list())),
-    ?assertEqual(false, istype(return_value(atom), nonempty_list())).
-
-nonempty_list_conversion_test() ->
-    [atom] = totype(return_value({atom}), nonempty_list()),
-    ?CONVERT_ERROR({}, nonempty_list()).
 
 %%=====================================
 %% string()
