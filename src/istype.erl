@@ -1,10 +1,10 @@
 -module(istype).
--export([istype/2, istype/4,
-         totype/2, totype/4]).
+-export([istype/3, istype/5,
+         totype/3, totype/5]).
 
 -include("istype.hrl").
 
--type form()       :: erl_parse:abstract_form().
+-type form()       :: term().
 -type forms()      :: list(form()).
 -type literal()    :: {literal, form()}.
 -type type()       :: #type{} | literal().
@@ -21,17 +21,17 @@
 %%====================================================================
 %% istype functions
 %%====================================================================
-istype(Value, Type) ->
-    istype_lib:istype(Value, Type, #{}, #{}).
+istype(Value, Type, Options) ->
+    istype_lib:istype(Value, Type, #{}, #{}, Options).
 
-istype(Value, Type, Types, Records) ->
-    istype_lib:istype(Value, Type, Types, Records).
+istype(Value, Type, Types, Records, Options) ->
+    istype_lib:istype(Value, Type, Types, Records, Options).
 
 %%====================================================================
 %% totype functions
 %%====================================================================
-totype(Value, Type) ->
-    istype_lib:totype(Value, Type, #{}, #{}).
+totype(Value, Type, Options) ->
+    istype_lib:totype(Value, Type, #{}, #{}, Options).
 
-totype(Value, Type, Types, Records) ->
-    istype_lib:totype(Value, Type, Types, Records).
+totype(Value, Type, Types, Records, Options) ->
+    istype_lib:totype(Value, Type, Types, Records, Options).

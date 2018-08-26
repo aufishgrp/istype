@@ -1,13 +1,8 @@
 -module(istype_parser).
 
--export([parse_types/1, parse_types/2,
-         parse_records/1, parse_records/2, parse_records/3,
+-export([parse_type/2, parse_types/1, parse_types/2,
+         parse_record/2, parse_records/1, parse_records/2, parse_records/3,
          resolve_types/1, resolve_type/2]).
-
--ifdef(EUNIT).
--export([parse_type/2,
-         parse_record/2]).
--endif.
 
 -include("istype.hrl").
 
@@ -95,7 +90,7 @@ do_parse_type(Module,
                            Class0 =:= opaque ->
     {Type, Types1} = parse_type(Module, TypeSpec, Types0),
     {Type#type{params = TypeParams}, Types1};
-do_parse_type(Module, {attribute, _, Class0, {TypeLabel, TypeSpec, TypeParams}}, Types0) when Class0 =:= type orelse
+do_parse_type(Module, {attribute, _, Class0, {_, TypeSpec, TypeParams}}, Types0) when Class0 =:= type orelse
                                                                                       Class0 =:= opaque ->
     Class1 = case {element(1, TypeSpec), is_bif(element(3, TypeSpec))} of
                  {atom, _} ->
@@ -1009,7 +1004,7 @@ parse_record_field_type(Module, _, Types) ->
     parse_type(Module, {type, 1, any, []}, Types).
 
 %%=========================================================
-%% determine_module
+%% is_bif
 %%=========================================================
 is_bif(any) -> true;
 is_bif(none) -> true;
@@ -1101,37 +1096,20 @@ do_resolve_type(Base, #type{} = Type, Types) ->
     
     ParamMap = maps:from_list(lists:zip(ParamKeys, Base#type.spec)),
     
-    Spec0 = update_term(fun Fun({var, _, Var}) ->
-                                   maps:get({var, Var}, ParamMap);
-                            Fun(#type{} = T) ->
-                                   T#type{spec = update_term(Fun, T#type.spec)};
-                            Fun(X) -> 
-                                   X
-                        end,
-                        Type#type.spec),
-    Spec1 = update_term(fun(#type{} = TypeX) ->
-                               resolve_type(TypeX, Types);
-                           (X) ->
-                               X
-                         end,
-                        Spec0),
+    Spec0 = istype_transform:update_term(fun Fun({var, _, Var}) ->
+                                                    maps:get({var, Var}, ParamMap);
+                                             Fun(#type{} = T) ->
+                                                    T#type{spec = istype_transform:update_term(Fun, T#type.spec)};
+                                             Fun(X) -> 
+                                                    X
+                                         end,
+                                         Type#type.spec),
+    Spec1 = istype_transform:update_term(fun(#type{} = TypeX) ->
+                                                resolve_type(TypeX, Types);
+                                            (X) ->
+                                                X
+                                         end,
+                                         Spec0),
     resolve_type(Type#type{spec = Spec1}, Types);
 do_resolve_type(_, #literal{} = Literal, _) ->
     Literal.
-
-%%=========================================================
-%% update_term
-%%=========================================================
-update_term(Fun, Term0) ->
-    case Fun(Term0) of
-        Term0 when is_list(Term0) ->
-            [update_term(Fun, X) || X <- Term0];
-        Term0 when is_tuple(Term0) ->
-            list_to_tuple([update_term(Fun, X) || X <- tuple_to_list(Term0)]);
-        Term0 when is_map(Term0) ->
-            {K, V} = lists:unzip(maps:to_list(Term0)),
-            maps:from_list(lists:zip([update_term(Fun, X) || X <- K],
-                                     [update_term(Fun, X) || X <- V]));
-        Term1 ->
-            Term1
-    end.

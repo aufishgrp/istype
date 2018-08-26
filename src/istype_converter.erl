@@ -2,6 +2,8 @@
 
 -export([transform/4, transform/6]).
 
+-include("istype.hrl").
+
 %%====================================================================
 %% transform functions
 %%====================================================================
@@ -19,7 +21,7 @@ transform(Line, Value, Type, Types, Records, Options) ->
             {atom, Line, istype_lib},
             {atom, Line, totype}},
         [Value,
-         erl_parse:abstract(Type, [{line, Line}]),
+         erl_parse:abstract(istype_transform:substitute_literals(Type), [{line, Line}]),
          erl_parse:abstract(Types, [{line, Line}]),
          erl_parse:abstract(Records, [{line, Line}]),
          erl_parse:abstract(Options, [{line, Line}])]}.

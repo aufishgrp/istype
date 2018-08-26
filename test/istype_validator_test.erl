@@ -10,9 +10,9 @@
                         end()).
 
 -define(REMOTE(Value, Type), fun() ->
-                                 Abs = erl_parse:abstract(Type, [{line, 1}]),
+                                 Abs = erl_parse:abstract(istype_transform:substitute_literals(Type), [{line, 1}]),
                                  Expected = {call, 1,
-                                                {remote, 1, {atom, 1, istype_lib}, {atom, 1, transform}},
+                                                {remote, 1, {atom, 1, istype_lib}, {atom, 1, istype}},
                                                  [Value,
                                                   Abs,
                                                   {map, 1, []},
@@ -152,9 +152,9 @@ integer_test() ->
                           #type{type = any}}},
     Expected2 = {op, 1, 'andalso',
                     {call, 1, {atom, 1, is_list}, [Value]},
-                    {op, 1, '<',
-                        {integer, 1, 0},
-                        {call, 1, {atom, 1, length}, [Value]}}},
+                    {op, 1, '=/=',
+                        {nil, 1},
+                        Value}},
     istype_test_util:match(istype_validator, Value, Expected2, Type2, []),
 
     Type3 = #type{type = list,
@@ -162,10 +162,10 @@ integer_test() ->
                           #type{type = any},
                           #literal{value = {nil, 1}}}},
     Expected3 = {op, 1, 'andalso',
-        {call, 1, {atom, 1, is_list}, [Value]},
-        {op, 1, '<',
-            {integer, 1, 0},
-            {call, 1, {atom, 1, length}, [Value]}}},
+                    {call, 1, {atom, 1, is_list}, [Value]},
+                    {op, 1, '=/=',
+                        {nil, 1},
+                        Value}},
     istype_test_util:match(istype_validator, Value, Expected3, Type3, []),
 
     Type4 = #type{type = list,

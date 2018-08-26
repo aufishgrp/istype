@@ -1,10 +1,6 @@
 -module(istype_validator).
 
--export([transform/6]).
-
--ifdef(EUNIT).
--export([transform/4]).
--endif.
+-export([transform/4, transform/6]).
 
 -include_lib("istype.hrl").
 
@@ -244,15 +240,15 @@ do_transform(Line, Value, #type{type = list, spec = {maybe_empty, #type{type = a
 do_transform(Line, Value, #type{type = list, spec = {nonempty, #type{type = any, spec = []}, #type{type = any, spec = []}}}, _, _, _) ->
     {op, Line, 'andalso',
         {call, Line, {atom, Line, is_list}, [Value]},
-        {op, Line, '<',
-            {integer, Line, 0},
-            {call, Line, {atom, Line, length}, [Value]}}};
+        {op, Line, '=/=',
+            {nil, Line},
+            Value}};
 do_transform(Line, Value, #type{type = list, spec = {nonempty, #type{type = any, spec = []}, #literal{value = {nil, _}}}}, _, _, _) ->
     {op, Line, 'andalso',
         {call, Line, {atom, Line, is_list}, [Value]},
-        {op, Line, '<',
-            {integer, Line, 0},
-            {call, Line, {atom, Line, length}, [Value]}}};
+        {op, Line, '=/=',
+            {nil, Line},
+            Value}};
 do_transform(Line, Value, #type{type = list} = Type, Types, Records, Options) ->
     transform_deep(Line, Value, Type, Types, Records, Options);
 %%=====================================
@@ -574,9 +570,9 @@ transform_deep(Line, Value, Type, Types, Records, Options) ->
     {call, Line,
         {remote, Line,
             {atom, Line, istype_lib},
-            {atom, Line, transform}},
+            {atom, Line, istype}},
         [Value,
-         erl_parse:abstract(Type, [{line, Line}]),
+         erl_parse:abstract(istype_transform:substitute_literals(Type), [{line, Line}]),
          erl_parse:abstract(Types, [{line, Line}]),
          erl_parse:abstract(Records, [{line, Line}]),
          erl_parse:abstract(Options, [{line, Line}])]}.
