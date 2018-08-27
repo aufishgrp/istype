@@ -148,6 +148,8 @@ do_istype(Value, #type{type = tuple} = Type, Types, Records, Options) when is_tu
 do_istype(_, #type{type = union, spec = []}, _, _, _) ->
     false;
 do_istype(Value, #type{type = union, spec = [UnionType | UnionTypes]} = Type, Types, Records, Options) ->
+    io:format("Types ~p\n", [Types]),
+    io:format("Check union type ~p ~p ~p\n", [UnionType, Value, do_istype(Value, UnionType, Types, Records, Options)]),
     case do_istype(Value, UnionType, Types, Records, Options) of
         true ->
             true;
@@ -309,6 +311,7 @@ do_istype(Value, Base, Types, Records, Options) ->
            length(Base#type.params)},
     case Types of
         #{MFA := Type} ->
+            io:format("Custom Type ~p ~p\n", [MFA, Type]),
             do_istype(Value, Type, Types, Records, Options);
         _ ->
             false
@@ -324,7 +327,7 @@ do_istype_list([], maybe_empty, _, _, _, _, _) ->
     io:format("Empty but thats ok\n", []),
     true;
 do_istype_list([Value | []], _, ValueType, TerminatorType, Types, Records, Options) ->
-    io:format("Value then nil termianted ~p ~p\n", [do_istype(Value, ValueType, Types, Records, Options), do_istype([], TerminatorType, Types, Records, Options)]),
+    io:format("Value then nil terminated ~p ~p\n", [do_istype(Value, ValueType, Types, Records, Options), do_istype([], TerminatorType, Types, Records, Options)]),
     io:format("~p ~p\n", [Value, ValueType]),
     io:format("~p ~p\n", [[], TerminatorType]),
     do_istype(Value, ValueType, Types, Records, Options) andalso
@@ -336,7 +339,7 @@ do_istype_list([Value | Values], Empty, ValueType, TerminatorType, Types, Record
     do_istype(Value, ValueType, Types, Records, Options) andalso
     do_istype_list(Values, Empty, ValueType, TerminatorType, Types, Records, Options);
 do_istype_list([Value | Terminator], _, ValueType, TerminatorType, Types, Records, Options) ->
-    io:format("Value then notnil termianted ~p ~p\n", [do_istype(Value, ValueType, Types, Records, Options), do_istype([], TerminatorType, Types, Records, Options)]),
+    io:format("Value then notnil terminated ~p ~p\n", [do_istype(Value, ValueType, Types, Records, Options), do_istype(Terminator, TerminatorType, Types, Records, Options)]),
 
     io:format("~p ~p\n", [Value, ValueType]),
     io:format("~p ~p\n", [Terminator, TerminatorType]),

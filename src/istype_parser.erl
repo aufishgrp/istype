@@ -595,13 +595,8 @@ do_parse_type(Module, {type, Line, iodata, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-do_parse_type(Module, {type, Line, iolist, []}, Types) ->
-    Form1 = {type, Line, union, [{type, Line, byte, []},
-                                 {type, Line, binary, []},
-                                 {type, iolist, []}]},
-    Form2 = {type, Line, union, [{type, Line, binary, []},
-                                 {type, Line, nil, []}]},
-    parse_type(Module, {type, Line, maybe_improper_list, [Form1, Form2]}, Types);
+do_parse_type(Module, {type, _, iolist, []}, Types) ->
+    {#type{type = iolist}, Types};
 do_parse_type(_, {type, iolist, []}, Types) ->
     {#type{type = iolist}, Types};
 %%======================================
