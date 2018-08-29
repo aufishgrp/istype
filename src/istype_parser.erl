@@ -394,6 +394,11 @@ do_parse_type(_, {tuple, _, []}, Types) ->
     {#type{type = tuple,
            spec = empty},
      Types};
+do_parse_type(Module, {tuple, _, FieldTypes0}, Types0) ->
+    {FieldTypes1, Types1} = parse_tuple_fields(Module, FieldTypes0, Types0),
+    {#type{type = tuple,
+           spec = FieldTypes1},
+     Types1};
 do_parse_type(_, {type, _, tuple, any}, Types) ->
     {#type{type = tuple,
            spec = any},
@@ -595,7 +600,7 @@ do_parse_type(Module, {type, Line, iodata, []}, Types) ->
 %%
 %%      Calls handled by the default call handler.
 %% @end
-do_parse_type(Module, {type, _, iolist, []}, Types) ->
+do_parse_type(_, {type, _, iolist, []}, Types) ->
     {#type{type = iolist}, Types};
 do_parse_type(_, {type, iolist, []}, Types) ->
     {#type{type = iolist}, Types};

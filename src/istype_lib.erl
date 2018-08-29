@@ -224,8 +224,13 @@ do_istype(Value, #type{type = boolean}, _, _, _) ->
 %%======================================
 %% iolist()
 %%======================================
-%% @doc Handled by List
-%% @end
+do_istype([H | []], #type{type = iolist}, Types, Records, Options) ->
+    do_istype_iolist_component(H, Types, Records, Options);
+do_istype([H | T], #type{type = iolist}, Types, Records, Options) when is_binary(T) ->
+    do_istype_iolist_component(H, Types, Records, Options);
+do_istype([H | T], #type{type = iolist}, Types, Records, Options) ->
+    do_istype_iolist_component(H, Types, Records, Options) andalso
+    do_istype(T, iolist, Types, Records, Options);
 %%======================================
 %% function()
 %%======================================
@@ -410,6 +415,21 @@ do_istype_tuple(Value, [TupleType | TupleTypes], Types, Records, Options, _, Ind
                     Options,
                     do_istype(element(Index, Value), TupleType, Types, Records, Options),
                     Index + 1).
+
+%%==========================================================
+%% do_istype_iolist_component()
+%%==========================================================
+do_istype_iolist_component(Value, Types, Records, Options) ->
+    case Value of
+        _ when is_binary(Value) ->
+            true;
+        _ when is_integer(Value) ->
+            do_istype(Value, byte, Types, Records, Options);
+        _ when is_list(Value) ->
+            do_istype(Value, iolist, Types, Records, Options);
+        _ ->
+            false
+    end.
 
 %%==============================================================================
 %% totype functions
@@ -1112,5 +1132,13 @@ shorthand(Value, list, Types, Records, Options, Action) ->
     Action(Value, #type{type = list, spec = any}, Types, Records, Options);
 shorthand(Value, map, Types, Records, Options, Action) ->
     Action(Value, #type{type = map, spec = any}, Types, Records, Options);
+shorthand(Value, byte, Types, Records, Options, Action) ->
+    Action(Value,
+           #type{type = range,
+                 spec = {#literal{value = 0},
+                         #literal{value = 255}}},
+           Types,
+           Records,
+           Options);
 shorthand(Value, Type, Types, Records, Options, Action) ->
     Action(Value, #type{type = Type}, Types, Records, Options).

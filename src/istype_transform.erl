@@ -34,11 +34,18 @@ parse_transform(Forms0, Options) ->
                        end,
                        Forms3),
 
-    insert_at_line(Export, 
+    X = insert_at_line(Export, 
                    {attribute, Export, export, [{istype_to_src, 0},
                                                 {istype_types, 0},
                                                 {istype_records, 0}]},
-                   Forms4).
+                   Forms4),
+    case Module of
+      istype_union_test ->
+        io:format("~p\n", [X]);
+      _ ->
+        ok
+    end,
+    X.
     
 
 do_transform(Module, {call, Line, {atom, _, istype}, [Value, Type0]}, Types, Records, Options) ->
@@ -86,17 +93,16 @@ src_fun(Line, Module) ->
 %% update_term
 %%=========================================================
 update_term(Fun, Term0) ->
-    case Fun(Term0) of
-        Term0 when is_list(Term0) ->
+    case Term0 of
+        _ when is_list(Term0) ->
             [update_term(Fun, X) || X <- Term0];
-        Term0 when is_tuple(Term0) ->
-            list_to_tuple([update_term(Fun, X) || X <- tuple_to_list(Term0)]);
-        Term0 when is_map(Term0) ->
+        _ when is_tuple(Term0) ->
+            list_to_tuple(update_term(Fun, tuple_to_list(Term0)));
+        _ when is_map(Term0) ->
             {K, V} = lists:unzip(maps:to_list(Term0)),
-            maps:from_list(lists:zip([update_term(Fun, X) || X <- K],
-                                     [update_term(Fun, X) || X <- V]));
-        Term1 ->
-            Term1
+            maps:from_list(lists:zip(update_term(Fun, K), update_term(Fun, V)));
+        _ ->
+            Fun(Term0)
     end.
 
 %%=========================================================

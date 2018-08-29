@@ -401,8 +401,10 @@ do_transform(Line, Value, #type{type = number, spec = []}, _, _, _) ->
 %%======================================
 %% iolist()
 %%======================================
-%% @doc Handled by List
+%% @doc Expect :: {type, iolist, []}
 %% @end
+do_transform(Line, Value, #type{type = iolist} = Type, Types, Records, Options) ->
+  transform_deep(Line, Value, Type, Types, Records, Options);
 %%======================================
 %% function()
 %%======================================
